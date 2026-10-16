@@ -278,4 +278,56 @@ Another line with #productivity tag.
         let notes = list_notes(base).expect("list_notes");
         assert_eq!(notes.len(), 2);
     }
+
+    #[test]
+    fn test_date_time_note_naming_and_sequence() {
+        use noteflow_app_lib::storage::generate_note_filename;
+        use chrono::Local;
+
+        let dir = tempdir().expect("tempdir");
+        let base = dir.path();
+        ensure_vault_structure(base).expect("ensure_vault_structure");
+
+        let now = Local::now();
+        let name1 = generate_note_filename(base, now);
+        assert!(name1.ends_with(".md"));
+        assert!(name1.len() >= 18); // e.g. 20261015_203220.md
+
+        // Create file with name1
+        let p1 = base.join("notes").join(&name1);
+        fs::write(&p1, b"first note").expect("write p1");
+
+        // Generating again with same timestamp should produce _01.md
+        let name2 = generate_note_filename(base, now);
+        assert_eq!(name2, format!("{}_01.md", &name1[..name1.len() - 3]));
+
+        let p2 = base.join("notes").join(&name2);
+        fs::write(&p2, b"second note").expect("write p2");
+
+        // Generating again with same timestamp should produce _02.md
+        let name3 = generate_note_filename(base, now);
+        assert_eq!(name3, format!("{}_02.md", &name1[..name1.len() - 3]));
+    }
+
+    #[test]
+    fn test_binary_attachment_save_and_base64() {
+        use noteflow_app_lib::attachments::{read_attachment_base64, save_attachment_bytes};
+
+        let dir = tempdir().expect("tempdir");
+        let base = dir.path();
+        ensure_vault_structure(base).expect("ensure_vault_structure");
+
+        let dummy_data = b"Hello NoteFlow Attachment World";
+        let info = save_attachment_bytes(base, "note-123", "greeting.txt", dummy_data)
+            .expect("save_attachment_bytes");
+
+        assert_eq!(info.filename, "greeting.txt");
+        assert_eq!(info.size, dummy_data.len() as u64);
+        assert!(base.join(&info.path).exists());
+
+        // Read base64
+        let base64_str = read_attachment_base64(base, &info.path)
+            .expect("read_attachment_base64");
+        assert!(base64_str.starts_with("data:text/plain;base64,"));
+    }
 }

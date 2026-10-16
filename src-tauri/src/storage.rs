@@ -106,9 +106,30 @@ pub fn parse_front_matter(content: &str) -> Result<(NoteMeta, String)> {
     }
 }
 
+use chrono::Local;
+
+pub fn generate_note_filename(base: &Path, now: chrono::DateTime<Local>) -> String {
+    let date_str = now.format("%Y%m%d_%H%M%S").to_string();
+    let notes_dir = base.join("notes");
+    let candidate = format!("{}.md", date_str);
+    if !notes_dir.join(&candidate).exists() {
+        return candidate;
+    }
+
+    let mut seq = 1;
+    loop {
+        let candidate_seq = format!("{}_{:02}.md", date_str, seq);
+        if !notes_dir.join(&candidate_seq).exists() {
+            return candidate_seq;
+        }
+        seq += 1;
+    }
+}
+
 pub fn create_note(base: &Path, content: &str, meta: &NoteMeta) -> Result<PathBuf> {
     ensure_vault_structure(base)?;
-    let note_path = base.join("notes").join(format!("{}.md", meta.id));
+    let filename = generate_note_filename(base, Local::now());
+    let note_path = base.join("notes").join(filename);
     let serialized = serialize_note(meta, content);
     atomic_write(&note_path, serialized.as_bytes())?;
     Ok(note_path)

@@ -17,7 +17,7 @@ interface NoteStoreState {
   selectNote: (note: NoteFile | null) => void;
   getNoteById: (id: string) => Promise<NoteFile | null>;
   createNote: (content: string, workspaceId?: string) => Promise<NoteFile | null>;
-  updateNote: (id: string, content: string, meta?: Partial<NoteMeta>) => Promise<void>;
+  updateNote: (id: string, content: string, meta?: Partial<NoteMeta>) => Promise<NoteFile | undefined>;
   deleteNote: (id: string) => Promise<void>;
   restoreNote: (id: string) => Promise<void>;
   permanentDeleteNote: (id: string) => Promise<void>;
@@ -98,13 +98,13 @@ export const useNoteStore = create<NoteStoreState>((set, get) => ({
     }
   },
 
-  updateNote: async (id: string, content: string, meta: Partial<NoteMeta> = {}) => {
+  updateNote: async (id: string, content: string, meta?: Partial<NoteMeta>) => {
     try {
-      await api.updateNote(id, content, meta);
+      const updatedNote = await api.updateNote(id, content, meta);
       set((state) => {
         const updatedNotes = state.notes.map((n) => {
           if (n.meta.id === id) {
-            return {
+            return updatedNote || {
               ...n,
               content,
               meta: {
@@ -119,7 +119,7 @@ export const useNoteStore = create<NoteStoreState>((set, get) => ({
 
         const updatedCurrent =
           state.currentNote?.meta.id === id
-            ? {
+            ? (updatedNote || {
                 ...state.currentNote,
                 content,
                 meta: {
@@ -127,14 +127,16 @@ export const useNoteStore = create<NoteStoreState>((set, get) => ({
                   ...meta,
                   updated_at: new Date().toISOString(),
                 },
-              }
+              })
             : state.currentNote;
 
-        return { notes: updatedNotes, currentNote: updatedCurrent };
+        return { notes: updatedNotes, currentNote: updatedCurrent, error: null };
       });
+      return updatedNote;
     } catch (err: any) {
       console.error(`Failed to update note ${id}:`, err);
       set({ error: err?.toString() || '更新笔记失败' });
+      throw err;
     }
   },
 

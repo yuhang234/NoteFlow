@@ -88,7 +88,29 @@ pub async fn update_note(
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let existing = read_note(&path)?;
-    let mut updated_meta = meta.unwrap_or(existing.meta);
+    let mut updated_meta = existing.meta;
+    if let Some(m) = meta {
+        if !m.note_type.is_empty() {
+            updated_meta.note_type = m.note_type;
+        }
+        updated_meta.pinned = m.pinned;
+        updated_meta.archived = m.archived;
+        if m.workspace_id.is_some() {
+            updated_meta.workspace_id = m.workspace_id;
+        }
+        if m.location.is_some() {
+            updated_meta.location = m.location;
+        }
+        if !m.relations.is_empty() {
+            updated_meta.relations = m.relations;
+        }
+        if m.parent_id.is_some() {
+            updated_meta.parent_id = m.parent_id;
+        }
+        if !m.reactions.is_empty() {
+            updated_meta.reactions = m.reactions;
+        }
+    }
     updated_meta.updated_at = Utc::now();
 
     storage::update_note(&base, &id, &content, &updated_meta)?;
@@ -524,6 +546,45 @@ pub async fn get_attachment_stats(
 ) -> std::result::Result<AttachmentStats, AppError> {
     let base = get_base_dir(&state);
     attachments::get_attachment_stats(&base)
+}
+
+#[tauri::command]
+pub async fn upload_attachment(
+    state: State<'_, AppState>,
+    note_id: String,
+    filename: String,
+    data: Vec<u8>,
+) -> std::result::Result<AttachmentInfo, AppError> {
+    let base = get_base_dir(&state);
+    let info = attachments::save_attachment_bytes(&base, &note_id, &filename, &data)?;
+    Ok(info)
+}
+
+#[tauri::command]
+pub async fn read_attachment_base64(
+    state: State<'_, AppState>,
+    relative_path: String,
+) -> std::result::Result<String, AppError> {
+    let base = get_base_dir(&state);
+    attachments::read_attachment_base64(&base, &relative_path)
+}
+
+#[tauri::command]
+pub async fn open_attachment(
+    state: State<'_, AppState>,
+    relative_path: String,
+) -> std::result::Result<(), AppError> {
+    let base = get_base_dir(&state);
+    attachments::open_attachment(&base, &relative_path)
+}
+
+#[tauri::command]
+pub async fn open_attachment_folder(
+    state: State<'_, AppState>,
+    note_id: Option<String>,
+) -> std::result::Result<(), AppError> {
+    let base = get_base_dir(&state);
+    attachments::open_attachment_folder(&base, note_id.as_deref())
 }
 
 // -------------------------------------------------------------

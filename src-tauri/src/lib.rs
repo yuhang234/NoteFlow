@@ -83,6 +83,10 @@ pub fn run() {
             commands::delete_workspace,
             // Attachments
             commands::add_attachment,
+            commands::upload_attachment,
+            commands::read_attachment_base64,
+            commands::open_attachment,
+            commands::open_attachment_folder,
             commands::list_attachments,
             commands::delete_attachment,
             commands::get_unused_attachments,

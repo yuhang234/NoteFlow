@@ -90,6 +90,11 @@ export interface AttachmentInfo {
   note_id: string;
 }
 
+export interface AttachmentStats {
+  total_count: number;
+  total_size_bytes: number;
+}
+
 export interface BackupInfo {
   filename: string;
   path: string;
@@ -116,8 +121,12 @@ export const api = {
   createNote: (content: string, workspace_id?: string) =>
     invoke<NoteFile>('create_note', { content, workspaceId: workspace_id }),
   getNote: (id: string) => invoke<NoteFile>('get_note', { id }),
-  updateNote: (id: string, content: string, meta: Partial<NoteMeta>) =>
-    invoke<void>('update_note', { id, content, meta }),
+  updateNote: (id: string, content: string, meta?: Partial<NoteMeta>) =>
+    invoke<NoteFile>('update_note', {
+      id,
+      content,
+      meta: meta && Object.keys(meta).length > 0 ? meta : null,
+    }),
   deleteNote: (id: string) => invoke<void>('delete_note', { id }),
   restoreNote: (id: string) => invoke<void>('restore_note', { id }),
   permanentDeleteNote: (id: string) =>
@@ -174,8 +183,26 @@ export const api = {
     invoke<[number, number][]>('get_notes_count_by_month', { year, month }),
   addAttachment: (noteId: string, sourcePath: string) =>
     invoke<string>('add_attachment', { noteId, sourcePath }),
+  uploadAttachment: (noteId: string, filename: string, data: number[] | Uint8Array) =>
+    invoke<AttachmentInfo>('upload_attachment', {
+      noteId,
+      filename,
+      data: Array.from(data),
+    }),
+  readAttachmentBase64: (relativePath: string) =>
+    invoke<string>('read_attachment_base64', { relativePath }),
+  openAttachment: (relativePath: string) =>
+    invoke<void>('open_attachment', { relativePath }),
+  openAttachmentFolder: (noteId?: string) =>
+    invoke<void>('open_attachment_folder', { noteId }),
   listAttachments: (noteId: string) =>
     invoke<AttachmentInfo[]>('list_attachments', { noteId }),
+  deleteAttachment: (noteId: string, filename: string) =>
+    invoke<void>('delete_attachment', { noteId, filename }),
+  getUnusedAttachments: () =>
+    invoke<AttachmentInfo[]>('get_unused_attachments'),
+  getAttachmentStats: () =>
+    invoke<AttachmentStats>('get_attachment_stats'),
   getViews: () => invoke<SavedView[]>('get_views'),
   saveView: (view: SavedView) => invoke<void>('save_view', { view }),
   deleteView: (id: string) => invoke<void>('delete_view', { id }),

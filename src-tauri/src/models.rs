@@ -20,6 +20,7 @@ pub struct Reaction {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteMeta {
+    #[serde(default = "Uuid::new_v4")]
     pub id: Uuid,
     #[serde(default = "default_note_type")]
     pub note_type: String,
