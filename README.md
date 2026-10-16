@@ -1,4 +1,37 @@
-# NoteFlow：本地优先 Markdown 桌面笔记软件开发规格说明书
+# NoteFlow：本地优先 Markdown 桌面笔记系统
+
+> 🚀 **NoteFlow** 是一款基于 **Tauri 2 + Rust + React 19 + TypeScript** 构建的本地优先（Local-First）桌面笔记软件。以纯本地 `.md` 文件为唯一权威数据源，支持完全离线运行、SQLite FTS5 全文索引、双栏实时渲染与多维知识管理。
+
+---
+
+## 📸 软件运行效果展示 (Screenshots)
+
+### 1. 专注编辑与实时渲染（双栏模式）
+> 支持 CodeMirror 6 源码编辑、Markdown 标题层级排版（H1~H6）、LaTeX 数学公式离线渲染、本地 Mermaid 图表、软换行支持、实时保存状态徽标与 <kbd>Ctrl</kbd>+<kbd>S</kbd> 快捷键即时持久化。
+
+![双栏 Markdown 编辑与实时渲染](docs/screenshots/01-editor-preview.png)
+
+### 2. 笔记列表与多维时间线
+> 提供多列瀑布流与卡片阅读视图，支持固定笔记置顶、多层级标签过滤（如 `#架构/本地优先`、`#技术/Rust`）、日期分组与表情反应记录。
+
+![笔记列表与多维时间线](docs/screenshots/02-timeline-page.png)
+
+### 3. 本地附件媒体库
+> 集中管理图片、PDF 文档与多媒体资源，支持外部文件拖拽上传、剪贴板截图直接按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴上传、按格式类型分类过滤与一键复制 Markdown 引用。
+
+![本地附件媒体库](docs/screenshots/03-attachments-gallery.png)
+
+### 4. 月度日历与日期视图
+> 按月直观呈现笔记发布分布，点击任意日期即时定位并回溯当日创建或编辑的笔记记录。
+
+![月度日历视图](docs/screenshots/04-calendar-page.png)
+
+### 5. 知识库数据统计看板与活跃度热力图
+> 实时统计笔记总数、任务数、代码块、外链数及附件占用空间，内置近 120 天写作习惯与活跃度贡献热力图。
+
+![知识库统计看板与热力图](docs/screenshots/05-stats-dashboard.png)
+
+---
 
 ## 一、项目定位与总体目标
 
