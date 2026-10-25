@@ -30,19 +30,30 @@ try {
     pnpm build
     if ($LASTEXITCODE -ne 0) { throw "pnpm build failed" }
 
-    Write-Host "==> 2/4 rust release build" -ForegroundColor Cyan
-    cargo build --release --manifest-path src-tauri\Cargo.toml
+    Write-Host "==> 2/5 rust release build" -ForegroundColor Cyan
+    # `custom-protocol` is mandatory: tauri's build script treats `!custom-protocol`
+    # as dev mode, in which case the exe loads http://localhost:1420 instead of the
+    # embedded frontend and shows ERR_CONNECTION_REFUSED.
+    cargo build --release --features custom-protocol --manifest-path src-tauri\Cargo.toml
     if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed" }
 
-    Write-Host "==> 3/4 copy portable files" -ForegroundColor Cyan
     $releaseDir = Join-Path $env:CARGO_TARGET_DIR "release"
+
+    Write-Host "==> 3/5 verify the frontend is embedded (not a dev build)" -ForegroundColor Cyan
+    $exePath = Join-Path $releaseDir "noteflow-app.exe"
+    $probe = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exePath))
+    if ($probe -notmatch "assets/index-") {
+        throw "build looks like a DEV build (no embedded frontend) - it would open http://localhost:1420. Check the custom-protocol feature."
+    }
+
+    Write-Host "==> 4/5 copy portable files" -ForegroundColor Cyan
     $portableDir = Join-Path $root "dist-release\NoteFlow-Portable"
     New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
     Copy-Item (Join-Path $releaseDir "noteflow-app.exe") $portableDir -Force
     $loader = Join-Path $releaseDir "WebView2Loader.dll"
     if (Test-Path $loader) { Copy-Item $loader $portableDir -Force }
 
-    Write-Host "==> 4/4 zip" -ForegroundColor Cyan
+    Write-Host "==> 5/5 zip" -ForegroundColor Cyan
     $zip = Join-Path $root "dist-release\NoteFlow-Windows-x64-Portable.zip"
     if (Test-Path $zip) { Remove-Item $zip -Force }
     Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $zip -Force

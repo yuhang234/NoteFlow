@@ -17,6 +17,11 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# 生产构建必须启用：tauri 的 build script 用 `!custom-protocol` 判定 dev 模式，
+# 未启用时 exe 会去连 http://localhost:1420（开发服务器），出现 ERR_CONNECTION_REFUSED。
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"

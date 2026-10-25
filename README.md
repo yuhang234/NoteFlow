@@ -1461,7 +1461,9 @@ $env:RUSTFLAGS = "-C linker=rust-lld"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1
 ```
 
-脚本会依次执行 `pnpm build` → `cargo build --release` → 刷新 `dist-release/NoteFlow-Portable/` → 重新打包 `dist-release/NoteFlow-Windows-x64-Portable.zip`。
+脚本会依次执行 `pnpm build` → `cargo build --release --features custom-protocol` → 校验前端是否已内嵌 → 刷新 `dist-release/NoteFlow-Portable/` → 重新打包 `dist-release/NoteFlow-Windows-x64-Portable.zip`。
+
+> **`--features custom-protocol` 不能省。** tauri 的 build script 用 `let dev = !has_feature("custom-protocol")` 决定 `cfg(dev)`：未启用该 feature 时 exe 会当成开发版，去加载 `http://localhost:1420`，用户看到的就是 **ERR_CONNECTION_REFUSED / localhost 拒绝连接**。脚本第 3 步会检查二进制里是否存在 `assets/index-*.js` 这样的内嵌资源路径，缺失就直接报错，避免又打出一个「连不上 localhost」的包。
 
 ### 30.4 测试与验证
 
@@ -1480,4 +1482,15 @@ cargo test --manifest-path src-tauri/Cargo.toml --bin noteflow-app
 | 版本 | 0.1.2（`Cargo.toml` / `tauri.conf.json` / `package.json` 同步） |
 | 可执行文件 | `dist-release/NoteFlow-Portable/noteflow-app.exe`（11.8 MB，release + LTO + strip） |
 | 便携包 | `dist-release/NoteFlow-Windows-x64-Portable.zip`（约 5.1 MB） |
-| 冒烟验证 | 直接运行与在便携目录内运行均可正常启动并保持运行 |
+| 冒烟验证 | 直接运行与在便携目录内运行均可正常启动；WebView2 的 Code Cache 中出现内嵌 `assets/index-*.js`，确认界面是从内置资源加载而非 localhost |
+
+### 30.6 排查记录：ERR_CONNECTION_REFUSED
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 打开 exe 显示「无法访问此页面 / localhost 拒绝连接」 | 打包时没带 `custom-protocol` feature，`cfg(dev)` 成立，窗口去连 `http://localhost:1420` | 用 `scripts/build-portable.ps1` 构建，或手动 `cargo build --release --features custom-protocol` |
+
+判断手头的 exe 是开发版还是生产版，看两个特征：
+
+- 文件体积：生产版约 13.8 MB（内嵌前端），开发版约 11.8 MB；
+- 用 `strings -a noteflow-app.exe | grep "assets/index-"`：生产版能匹配到 `/assets/index-xxxx.js`，开发版匹配不到。
