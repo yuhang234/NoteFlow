@@ -255,7 +255,7 @@ pub async fn list_notes(
 }
 
 /// Sort notes with pinned entries first, then by the requested key.
-pub(crate) fn sort_notes(notes: &mut [NoteFile], sort_by: &str, descending: bool) {
+pub fn sort_notes(notes: &mut [NoteFile], sort_by: &str, descending: bool) {
     notes.sort_by(|a, b| {
         let ordering = match sort_by {
             "created_at" => a.meta.created_at.cmp(&b.meta.created_at),

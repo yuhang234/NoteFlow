@@ -197,6 +197,7 @@ impl Drop for VaultWatcher {
 /// [`crate::storage::is_self_write`], so the editor is never reloaded while the
 /// user is typing.
 pub fn watch_vault(app: tauri::AppHandle, notes_dir: &Path) -> Result<VaultWatcher> {
+    use tauri::Emitter;
     VaultWatcher::start(notes_dir, move |batch| {
         for (path, kind) in batch {
             if crate::storage::is_self_write(&path) {

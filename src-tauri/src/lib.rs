@@ -44,6 +44,8 @@ pub fn run() {
         watcher: Mutex::new(None),
     };
 
+    use tauri::Manager;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

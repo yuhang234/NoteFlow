@@ -203,7 +203,7 @@ fn write_key(path: &Path) -> String {
     }
 }
 
-pub(crate) fn mark_self_write(path: &Path) {
+pub fn mark_self_write(path: &Path) {
     if let Ok(mut map) = recent_writes().lock() {
         let now = Instant::now();
         map.retain(|_, at| now.duration_since(*at) < Duration::from_secs(30));

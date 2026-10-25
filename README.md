@@ -1427,3 +1427,57 @@ SQLite 索引可以选择备份，但恢复后即使删除索引，也必须能�
 - 预览区对 `.noteflow-markdown` 追加 `overflow-wrap: anywhere`，超长 URL、哈希、连续英文串都会折行；代码块（`pre`）仍保留内部横向滚动，避免代码被强行折断。
 - 布局链路补齐 `min-w-0`/`min-h-0`：侧栏 224px + 列表 288px 为固定列，正文列作为 flex 子项可以真正收缩，不再被内容的最小宽度撑开。
 - 分栏比例的可调范围放宽到 15%–85%，拖动分隔条即可让编辑或预览占据绝大部分宽度，双击分隔条恢复 50/50。
+
+## 三十、构建验证与工具链修复（v0.1.2）
+
+### 30.1 之前为什么「编不出可运行的 exe」
+
+本机 Rust 工具链为 `x86_64-pc-windows-gnu`，此前一直用 `-C linker=C:/mingw64/bin/gcc.exe` 链接。该组合产出的二进制**重定位信息是坏的**：加载后代码跳到一个「丢了镜像基址」的地址（例如 `.idata` 的 RVA `0x159ace4` 而不是 `0x140159ace4`），于是表现为：
+
+- `tauri v2.12.3` 的 build script 在启动瞬间 `STATUS_ACCESS_VIOLATION (0xc0000005)`；
+- `chrono::Local::now()` 崩在 `TzInfo::for_year`；
+- 崩溃栈都落在 `std::rt::init → GetModuleHandleA`，与业务代码无关。
+
+这两处「玄学崩溃」其实是同一个链接器缺陷，而不是 chrono 或 tauri 的问题。
+
+### 30.2 修复方式
+
+改用 Rust 工具链自带的 `rust-lld`：
+
+```powershell
+$env:PATH = "$(rustc --print sysroot)\lib\rustlib\x86_64-pc-windows-gnu\bin;$env:PATH"
+$env:RUSTFLAGS = "-C linker=rust-lld"
+```
+
+换掉链接器后：
+
+- `tauri` 及其 build script 正常编译，`generate_context!` 把 `dist/` 内嵌进 exe；
+- 之前被 rscheck 桩掩盖的 3 处真实编译错误暴露并修好（`watcher.rs` 缺 `tauri::Emitter`，`lib.rs` 缺 `tauri::Manager`，`storage::mark_self_write` / `commands::sort_notes` 可见性）；
+- **全部 17 个测试通过（含此前 7 个必崩的 chrono 用例）**。
+
+### 30.3 一条命令构建
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1
+```
+
+脚本会依次执行 `pnpm build` → `cargo build --release` → 刷新 `dist-release/NoteFlow-Portable/` → 重新打包 `dist-release/NoteFlow-Windows-x64-Portable.zip`。
+
+### 30.4 测试与验证
+
+```powershell
+$env:RUSTFLAGS = "-C linker=rust-lld"
+cargo test --manifest-path src-tauri/Cargo.toml --bin noteflow-app
+# test result: ok. 17 passed; 0 failed
+```
+
+> 注意必须带 `--bin noteflow-app`。不带时会先跑 `src/lib.rs` 的**空测试目标**，而该目标拿不到 tauri-build 只发给 bin 的 manifest 资源，comctl32 会解析成 v5，`TaskDialogIndirect` 绑定失败，进程在 `main` 之前就以 `STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)` 退出。
+
+### 30.5 本次构建产物
+
+| 项目 | 值 |
+| --- | --- |
+| 版本 | 0.1.2（`Cargo.toml` / `tauri.conf.json` / `package.json` 同步） |
+| 可执行文件 | `dist-release/NoteFlow-Portable/noteflow-app.exe`（11.8 MB，release + LTO + strip） |
+| 便携包 | `dist-release/NoteFlow-Windows-x64-Portable.zip`（约 5.1 MB） |
+| 冒烟验证 | 直接运行与在便携目录内运行均可正常启动并保持运行 |
