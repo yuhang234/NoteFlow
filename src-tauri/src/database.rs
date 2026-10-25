@@ -5,6 +5,70 @@ use chrono::{Duration, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
 
+/// Escape `LIKE` wildcards so user input is matched literally.
+fn escape_like(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn find_subslice(haystack: &[char], needle: &[char]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Build a plain-text snippet with `<mark>` around the first matched term.
+///
+/// The caller is responsible for rendering the markers safely (never as HTML).
+fn make_snippet(content: &str, terms: &[String]) -> String {
+    let flat = content.replace(['\n', '\r'], " ");
+    let chars: Vec<char> = flat.chars().collect();
+    let lowered: Vec<char> = flat.to_lowercase().chars().collect();
+    // `to_lowercase` can change the character count (e.g. `İ`), so only trust it
+    // when the mapping is length preserving.
+    let haystack: &[char] = if lowered.len() == chars.len() {
+        &lowered
+    } else {
+        &chars
+    };
+
+    for term in terms {
+        let needle: Vec<char> = term.to_lowercase().chars().collect();
+        if let Some(pos) = find_subslice(haystack, &needle) {
+            let start = pos.saturating_sub(30);
+            let match_end = (pos + needle.len()).min(chars.len());
+            let end = (match_end + 40).min(chars.len());
+
+            let mut snippet = String::new();
+            if start > 0 {
+                snippet.push('…');
+            }
+            snippet.extend(&chars[start..pos]);
+            snippet.push_str("<mark>");
+            snippet.extend(&chars[pos..match_end]);
+            snippet.push_str("</mark>");
+            snippet.extend(&chars[match_end..end]);
+            if end < chars.len() {
+                snippet.push('…');
+            }
+            return snippet;
+        }
+    }
+
+    let mut fallback: String = chars.iter().take(80).collect();
+    if chars.len() > 80 {
+        fallback.push('…');
+    }
+    fallback
+}
+
 pub struct Database {
     conn: Connection,
 }
@@ -21,6 +85,15 @@ impl Database {
     }
 
     pub fn init_schema(&self) -> Result<()> {
+        // Older vaults used the `unicode61` tokenizer, which indexes whole
+        // Chinese sentences as single tokens. Drop such an index so it is
+        // recreated with `trigram` and rebuilt from disk on startup.
+        if let Some(sql) = self.fts_table_sql() {
+            if !sql.to_lowercase().contains("trigram") {
+                self.conn.execute_batch("DROP TABLE IF EXISTS notes_fts;")?;
+            }
+        }
+
         self.conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS notes_meta (
@@ -71,11 +144,23 @@ impl Database {
                 title,
                 content,
                 tags,
-                tokenize = 'unicode61'
+                tokenize = 'trigram'
             );
             ",
         )?;
         Ok(())
+    }
+
+    /// Current `notes_fts` definition, used to detect tokenizer changes.
+    fn fts_table_sql(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notes_fts'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
     }
 
     pub fn index_note(&self, note: &NoteFile) -> Result<()> {
@@ -213,30 +298,67 @@ impl Database {
         Ok(count)
     }
 
+    /// Full-text search over titles, bodies and tags.
+    ///
+    /// The index uses the `trigram` tokenizer so that Chinese (and any other
+    /// script without spaces) can be matched by substring. Trigrams need at
+    /// least three characters, therefore shorter queries fall back to a
+    /// `LIKE` scan over the index table.
     pub fn search(&self, query: &str, limit: u32, offset: u32) -> Result<Vec<SearchResult>> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Prepare FTS5 query terms: sanitize or quote terms
-        let sanitized_terms: Vec<String> = trimmed
-            .split_whitespace()
-            .map(|word| {
-                let clean = word.replace('"', "\"\"");
-                format!("\"{}\"*", clean)
-            })
-            .collect();
+        let terms: Vec<String> = trimmed.split_whitespace().map(|t| t.to_string()).collect();
+        let can_use_trigram = terms.iter().all(|term| term.chars().count() >= 3);
 
-        let fts_query = sanitized_terms.join(" ");
+        let rows = if can_use_trigram {
+            self.search_trigram(&terms, limit, offset)
+                .or_else(|_| self.search_like(&terms, limit, offset))?
+        } else {
+            self.search_like(&terms, limit, offset)?
+        };
+
+        let mut results = Vec::with_capacity(rows.len());
+        for (note_id, title, content, created_at) in rows {
+            let snippet = make_snippet(&content, &terms);
+            let mut tag_stmt = self
+                .conn
+                .prepare("SELECT tag FROM tags WHERE note_id = ? ORDER BY tag")?;
+            let tags = tag_stmt
+                .query_map(params![note_id], |row| row.get::<_, String>(0))?
+                .filter_map(|t| t.ok())
+                .collect();
+
+            results.push(SearchResult {
+                note_id,
+                title,
+                snippet,
+                score: 0.0,
+                created_at,
+                tags,
+            });
+        }
+
+        Ok(results)
+    }
+
+    fn search_trigram(
+        &self,
+        terms: &[String],
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<(String, String, String, String)>> {
+        let fts_query = terms
+            .iter()
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" ");
 
         let sql = "
-            SELECT
-                notes_fts.id,
-                notes_fts.title,
-                snippet(notes_fts, 2, '<mark>', '</mark>', '...', 20) AS snip,
-                bm25(notes_fts) AS rank,
-                notes_meta.created_at
+            SELECT notes_fts.id, notes_fts.title, notes_fts.content, notes_meta.created_at,
+                   bm25(notes_fts) AS rank
             FROM notes_fts
             JOIN notes_meta ON notes_fts.id = notes_meta.id
             WHERE notes_fts MATCH ?1
@@ -246,38 +368,66 @@ impl Database {
 
         let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map(params![fts_query, limit, offset], |row| {
-            let note_id: String = row.get(0)?;
-            let title: String = row.get(1)?;
-            let snippet: String = row.get(2)?;
-            let score: f64 = row.get(3)?;
-            let created_at: String = row.get(4)?;
-            Ok((note_id, title, snippet, score, created_at))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
         })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
 
-        let mut results = Vec::new();
-        for r in rows {
-            let (note_id, title, snippet, score, created_at) = r?;
-            // fetch tags for this note
-            let mut tag_stmt = self.conn.prepare("SELECT tag FROM tags WHERE note_id = ?")?;
-            let tag_rows = tag_stmt.query_map(params![note_id], |row| row.get::<_, String>(0))?;
-            let mut tags = Vec::new();
-            for t in tag_rows {
-                if let Ok(tag) = t {
-                    tags.push(tag);
-                }
-            }
-
-            results.push(SearchResult {
-                note_id,
-                title,
-                snippet,
-                score,
-                created_at,
-                tags,
-            });
+    fn search_like(
+        &self,
+        terms: &[String],
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<(String, String, String, String)>> {
+        if terms.is_empty() {
+            return Ok(Vec::new());
         }
 
-        Ok(results)
+        let mut values: Vec<rusqlite::types::Value> = Vec::new();
+        let mut clauses = Vec::new();
+        for term in terms {
+            values.push(rusqlite::types::Value::Text(format!(
+                "%{}%",
+                escape_like(term)
+            )));
+            let idx = values.len();
+            clauses.push(format!(
+                "(notes_fts.title LIKE ?{idx} ESCAPE '\\' OR notes_fts.content LIKE ?{idx} ESCAPE '\\' OR notes_fts.tags LIKE ?{idx} ESCAPE '\\')"
+            ));
+        }
+
+        values.push(rusqlite::types::Value::Integer(limit as i64));
+        let limit_idx = values.len();
+        values.push(rusqlite::types::Value::Integer(offset as i64));
+        let offset_idx = values.len();
+
+        let sql = format!(
+            "SELECT notes_fts.id, notes_fts.title, notes_fts.content, notes_meta.created_at
+             FROM notes_fts
+             JOIN notes_meta ON notes_fts.id = notes_meta.id
+             WHERE {}
+             ORDER BY notes_meta.updated_at DESC
+             LIMIT ?{} OFFSET ?{}",
+            clauses.join(" AND "),
+            limit_idx,
+            offset_idx
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     pub fn get_all_tags(&self) -> Result<Vec<(String, u32)>> {

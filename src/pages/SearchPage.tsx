@@ -2,21 +2,68 @@ import * as React from "react";
 import { Search, FileText, Calendar, Tag as TagIcon } from "lucide-react";
 import { SearchBar } from "@/components/SearchBar";
 import { useSearchStore } from "@/stores/search-store";
-import { useNoteStore } from "@/stores/note-store";
 import { NoteDetail } from "@/components/NoteDetail";
 import { TagBadge } from "@/components/TagBadge";
+import { api, type NoteFile } from "@/lib/tauri-api";
 import { cn } from "@/lib/utils";
+
+/**
+ * Snippets come back with `<mark>` markers from the backend. Render them as
+ * real elements instead of HTML so note content can never inject markup.
+ */
+function HighlightedSnippet({ snippet }: { snippet: string }) {
+  const parts = React.useMemo(() => snippet.split(/(<mark>|<\/mark>)/g), [snippet]);
+  let highlighted = false;
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part === "<mark>") {
+          highlighted = true;
+          return null;
+        }
+        if (part === "</mark>") {
+          highlighted = false;
+          return null;
+        }
+        if (!part) return null;
+        return highlighted ? (
+          <mark key={index} className="bg-primary/20 text-foreground rounded-xs px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={index}>{part}</span>
+        );
+      })}
+    </>
+  );
+}
 
 export function SearchPage() {
   const { query, results, isLoading } = useSearchStore();
-  const { notes, selectNote, currentNote } = useNoteStore();
 
   const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null);
+  const [matchedNote, setMatchedNote] = React.useState<NoteFile | null>(null);
 
-  const matchedNote = React.useMemo(() => {
-    if (!selectedNoteId) return null;
-    return notes.find((n) => n.meta.id === selectedNoteId) || null;
-  }, [notes, selectedNoteId]);
+  // Search results only carry ids, so load the note directly instead of relying
+  // on the (possibly unfiltered) list in the note store.
+  React.useEffect(() => {
+    if (!selectedNoteId) {
+      setMatchedNote(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getNote(selectedNoteId)
+      .then((note) => {
+        if (!cancelled) setMatchedNote(note);
+      })
+      .catch(() => {
+        if (!cancelled) setMatchedNote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNoteId]);
 
   return (
     <div className="flex w-full h-full">
@@ -55,7 +102,7 @@ export function SearchPage() {
               >
                 <h4 className="text-xs font-semibold truncate text-foreground">{item.title}</h4>
                 <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                  {item.snippet}
+                  <HighlightedSnippet snippet={item.snippet} />
                 </p>
                 {item.tags && item.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">

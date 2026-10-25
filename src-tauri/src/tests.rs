@@ -439,4 +439,49 @@ Another line with #productivity tag.
             "pinned first, then oldest first"
         );
     }
+    fn indexed_note(db: &Database, title: &str, body: &str) -> String {
+        let mut meta = NoteMeta::default();
+        meta.id = uuid::Uuid::new_v4();
+        let id = meta.id.to_string();
+        let note = NoteFile {
+            meta,
+            content: format!("# {}\n\n{}", title, body),
+            file_path: std::path::PathBuf::from(format!("notes/{}.md", id)),
+        };
+        db.index_note(&note).expect("index_note");
+        id
+    }
+
+    #[test]
+    fn test_chinese_full_text_search_matches_substrings() {
+        let dir = tempdir().expect("tempdir");
+        let db = Database::new(&dir.path().join("index.db")).expect("db");
+        let id = indexed_note(&db, "今天", "今天学习了Rust编程技巧，顺便整理了笔记。");
+        indexed_note(&db, "购物清单", "牛奶、鸡蛋、咖啡豆");
+
+        // 2 chars -> LIKE fallback, must still match inside a Chinese sentence.
+        let hits = db.search("学习", 10, 0).expect("search 学习");
+        assert_eq!(hits.len(), 1, "2-char query should match");
+        assert_eq!(hits[0].note_id, id);
+        assert!(hits[0].snippet.contains("<mark>学习</mark>"));
+
+        // 3+ chars -> trigram index.
+        assert_eq!(db.search("编程技巧", 10, 0).expect("search 编程技巧").len(), 1);
+        assert_eq!(db.search("咖啡", 10, 0).expect("search 咖啡").len(), 1);
+
+        // Latin substring and mixed script.
+        assert_eq!(db.search("Rust", 10, 0).expect("search Rust").len(), 1);
+        assert_eq!(db.search("ust编", 10, 0).expect("search ust编").len(), 1);
+
+        // Multi-term queries are AND-ed.
+        assert_eq!(db.search("学习 笔记", 10, 0).expect("search and").len(), 1);
+        assert_eq!(db.search("学习 牛奶", 10, 0).expect("search and miss").len(), 0);
+
+        // Unknown term.
+        assert_eq!(db.search("Python", 10, 0).expect("search Python").len(), 0);
+
+        // Snippet markers are plain text, never raw HTML.
+        let snippet = &db.search("学习", 10, 0).expect("search").remove(0).snippet;
+        assert!(!snippet.contains("<script"));
+    }
 }
