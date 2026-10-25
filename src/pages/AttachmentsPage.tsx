@@ -16,6 +16,81 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, AttachmentInfo, AttachmentStats } from "@/lib/tauri-api";
+import {
+  forgetAttachment,
+  getCachedAttachment,
+  loadAttachmentImage,
+} from "@/lib/attachment-cache";
+
+/**
+ * Thumbnail that only reads the attachment once it scrolls into view.
+ * Loading every image up front meant one IPC round trip (with a full base64
+ * payload) per attachment on page open.
+ */
+function AttachmentThumb({ path, filename }: { path: string; filename: string }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [dataUrl, setDataUrl] = React.useState<string | null>(
+    () => getCachedAttachment(path) ?? null
+  );
+
+  React.useEffect(() => {
+    if (dataUrl) return;
+    let cancelled = false;
+
+    const load = () => {
+      loadAttachmentImage(path)
+        .then((url) => {
+          if (!cancelled) setDataUrl(url);
+        })
+        .catch(() => {
+          /* Missing file: fall back to the icon placeholder. */
+        });
+    };
+
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      load();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect();
+          load();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(element);
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [path, dataUrl]);
+
+  return (
+    <div
+      ref={ref}
+      className="h-32 bg-muted/40 flex items-center justify-center overflow-hidden cursor-pointer relative"
+      title="点击打开文件"
+    >
+      {dataUrl ? (
+        <img
+          src={dataUrl}
+          alt={filename}
+          loading="lazy"
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+        />
+      ) : (
+        <Image className="h-10 w-10 text-blue-500/60" />
+      )}
+    </div>
+  );
+}
 
 export function AttachmentsPage() {
   const [attachments, setAttachments] = React.useState<AttachmentInfo[]>([]);
@@ -23,7 +98,6 @@ export function AttachmentsPage() {
   const [loading, setLoading] = React.useState(true);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [category, setCategory] = React.useState<"all" | "image" | "doc" | "archive" | "other">("all");
-  const [thumbnails, setThumbnails] = React.useState<Record<string, string>>({});
   const [copiedPath, setCopiedPath] = React.useState<string | null>(null);
 
   const loadData = React.useCallback(async () => {
@@ -35,18 +109,6 @@ export function AttachmentsPage() {
       ]);
       setAttachments(list);
       setStats(stat);
-
-      // Lazy load thumbnails for images
-      list.forEach(async (item: AttachmentInfo) => {
-        if (item.mime_type.startsWith("image/")) {
-          try {
-            const dataUrl = await api.readAttachmentBase64(item.path);
-            setThumbnails((prev) => ({ ...prev, [item.path]: dataUrl }));
-          } catch (e) {
-            // ignore
-          }
-        }
-      });
     } catch (err) {
       console.error("Failed to load attachments:", err);
     } finally {
@@ -62,6 +124,7 @@ export function AttachmentsPage() {
     if (!window.confirm(`确定要彻底删除附件 "${item.filename}" 吗？`)) return;
     try {
       await api.deleteAttachment(item.note_id || "", item.filename);
+      forgetAttachment(item.path);
       await loadData();
     } catch (err) {
       console.error("Failed to delete attachment:", err);
@@ -234,7 +297,6 @@ export function AttachmentsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filtered.map((item) => {
               const isImage = item.mime_type.startsWith("image/");
-              const thumbUrl = thumbnails[item.path];
 
               return (
                 <div
@@ -243,22 +305,19 @@ export function AttachmentsPage() {
                 >
                   {/* Thumbnail / Icon area */}
                   <div
-                    className="h-32 bg-muted/40 flex items-center justify-center overflow-hidden cursor-pointer relative"
                     onClick={() => api.openAttachment(item.path)}
-                    title="点击打开文件"
+                    className="relative"
                   >
-                    {isImage && thumbUrl ? (
-                      <img
-                        src={thumbUrl}
-                        alt={item.filename}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : isImage ? (
-                      <Image className="h-10 w-10 text-blue-500/60" />
-                    ) : item.mime_type.includes("pdf") || item.mime_type.includes("text") ? (
-                      <File className="h-10 w-10 text-amber-500/60" />
+                    {isImage ? (
+                      <AttachmentThumb path={item.path} filename={item.filename} />
                     ) : (
-                      <FileArchive className="h-10 w-10 text-emerald-500/60" />
+                      <div className="h-32 bg-muted/40 flex items-center justify-center overflow-hidden">
+                        {item.mime_type.includes("pdf") || item.mime_type.includes("text") ? (
+                          <File className="h-10 w-10 text-amber-500/60" />
+                        ) : (
+                          <FileArchive className="h-10 w-10 text-emerald-500/60" />
+                        )}
+                      </div>
                     )}
 
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

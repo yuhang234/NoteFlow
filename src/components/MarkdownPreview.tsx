@@ -15,24 +15,14 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/tauri-api";
 import { markdownSanitizeSchema } from "@/lib/sanitize-schema";
 import { useUIStore } from "@/stores/ui-store";
+import { getCachedAttachment, loadAttachmentImage } from "@/lib/attachment-cache";
 
 interface MarkdownPreviewProps {
   content: string;
   className?: string;
 }
 
-// In-memory cache for loaded base64 attachment images. Base64 payloads are
-// large, so keep it bounded instead of growing for the whole session.
-const attachmentImageCache = new Map<string, string>();
-const ATTACHMENT_CACHE_LIMIT = 40;
 
-function cacheAttachmentImage(src: string, dataUrl: string) {
-  if (attachmentImageCache.size >= ATTACHMENT_CACHE_LIMIT) {
-    const oldest = attachmentImageCache.keys().next().value;
-    if (oldest !== undefined) attachmentImageCache.delete(oldest);
-  }
-  attachmentImageCache.set(src, dataUrl);
-}
 
 export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProps) {
   const [html, setHtml] = React.useState<string>("");
@@ -148,13 +138,13 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
       const isVaultRelative =
         !!src && !src.startsWith("//") && !/^[a-z][a-z0-9+.-]*:/i.test(src);
       if (src && isVaultRelative) {
-        if (attachmentImageCache.has(src)) {
-          img.src = attachmentImageCache.get(src)!;
+        // Bounded, de-duplicated cache shared with the attachment gallery.
+        const cached = getCachedAttachment(src);
+        if (cached) {
+          img.src = cached;
         } else {
           try {
-            const dataUrl = await api.readAttachmentBase64(src);
-            cacheAttachmentImage(src, dataUrl);
-            img.src = dataUrl;
+            img.src = await loadAttachmentImage(src);
           } catch (err) {
             console.warn(`Failed to load local attachment image ${src}:`, err);
           }
