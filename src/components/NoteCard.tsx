@@ -14,22 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TagBadge } from "@/components/TagBadge";
 import { useToast } from "@/components/ui/toast";
-
-/** Strip the most common Markdown syntax so the card shows readable text. */
-function toPlainText(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/~~~[\s\S]*?~~~/g, " ")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
-    .replace(/\|/g, " ")
-    .replace(/[*_~]{1,3}/g, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+import { toPlainText } from "@/lib/markdown-text";
 
 interface NoteCardProps {
   note: NoteFile;
@@ -45,7 +30,9 @@ export function NoteCard({ note, isSelected = false, onClick }: NoteCardProps) {
   const lines = note.content.trim().split("\n");
   const firstLine = lines[0] || "";
   const title = toPlainText(firstLine) || "无标题笔记";
-  const preview = toPlainText(lines.slice(1).join(" ")).slice(0, 120);
+  // Only the head of the body is needed for the snippet, and running the
+  // Markdown stripper over a whole long note for every card is wasteful.
+  const preview = toPlainText(lines.slice(1).join(" ").slice(0, 600)).slice(0, 120);
 
   // Extract tags: #tag pattern
   const tags = React.useMemo(() => {

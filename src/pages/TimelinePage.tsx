@@ -1,28 +1,47 @@
 import * as React from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { FileEdit, PanelLeftOpen } from "lucide-react";
 import { useNoteStore } from "@/stores/note-store";
+import { useUIStore } from "@/stores/ui-store";
 import { NoteList } from "@/components/NoteList";
 import { NoteDetail } from "@/components/NoteDetail";
-import { FileEdit, PanelLeftOpen } from "lucide-react";
-import { useUIStore } from "@/stores/ui-store";
+import { NoteFile } from "@/lib/tauri-api";
 
 export function TimelinePage() {
-  const { notes, currentNote, selectNote, fetchNotes, isLoading } = useNoteStore();
+  const { notes, currentNote, selectNote, fetchNotes, getNoteById, isLoading } =
+    useNoteStore();
   const { noteListOpen, toggleNoteList } = useUIStore();
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   React.useEffect(() => {
     fetchNotes();
   }, [fetchNotes]);
 
-  // Default to first note if none selected and notes exist
+  // The URL is the source of truth: `/note/:id` must open that note, also when
+  // the app is opened from a deep link or via back/forward navigation.
   React.useEffect(() => {
-    if (!currentNote && notes.length > 0) {
-      selectNote(notes[0]);
-    }
-  }, [notes, currentNote, selectNote]);
+    if (!id || currentNote?.meta.id === id) return;
+    const fromList = notes.find((note) => note.meta.id === id);
+    if (fromList) selectNote(fromList);
+    else void getNoteById(id);
+  }, [id, notes, currentNote, selectNote, getNoteById]);
+
+  // With no note in the URL, fall back to the first visible note.
+  React.useEffect(() => {
+    if (id || currentNote || notes.length === 0) return;
+    const first = notes.find((note) => !note.meta.archived);
+    if (first) navigate(`/note/${first.meta.id}`, { replace: true });
+  }, [id, currentNote, notes, navigate]);
 
   const activeNotes = React.useMemo(() => {
     return notes.filter((n) => !n.meta.archived);
   }, [notes]);
+
+  const handleSelectNote = (note: NoteFile) => {
+    selectNote(note);
+    navigate(`/note/${note.meta.id}`);
+  };
 
   return (
     <div className="flex w-full h-full">
@@ -32,7 +51,7 @@ export function TimelinePage() {
           <NoteList
             notes={activeNotes}
             selectedNoteId={currentNote?.meta.id}
-            onSelectNote={selectNote}
+            onSelectNote={handleSelectNote}
           />
         </div>
       )}
@@ -50,6 +69,11 @@ export function TimelinePage() {
         )}
         {currentNote ? (
           <NoteDetail key={currentNote.meta.id} note={currentNote} />
+        ) : isLoading ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm">正在加载笔记...</p>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
             <FileEdit className="h-12 w-12 stroke-1 opacity-40" />

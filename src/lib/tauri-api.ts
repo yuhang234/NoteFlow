@@ -110,6 +110,18 @@ export interface BackupInfo {
   created_at: string;
 }
 
+export interface RestoreReport {
+  restored_notes: number;
+  restored_attachments: number;
+  message: string;
+}
+
+export interface ImportReport {
+  imported_count: number;
+  skipped_count: number;
+  errors: string[];
+}
+
 export interface AppConfig {
   data_dir: string;
   theme: string;
@@ -227,6 +239,13 @@ export const api = {
   deleteView: (id: string) => invoke<void>('delete_view', { id }),
   createBackup: () => invoke<string>('create_backup'),
   listBackups: () => invoke<BackupInfo[]>('list_backups'),
+  restoreBackup: (backupPath: string) =>
+    invoke<RestoreReport>('restore_backup', { backupPath }),
+  importMarkdownFolder: (sourcePath: string) =>
+    invoke<ImportReport>('import_markdown_folder', { sourcePath }),
+  exportNotesZip: (noteIds: string[], outputPath: string) =>
+    invoke<void>('export_notes_zip', { noteIds, outputPath }),
+  exportNoteHtml: (noteId: string) => invoke<string>('export_note_html', { noteId }),
   rebuildIndex: () => invoke<number>('rebuild_index'),
   saveDraft: (id: string, content: string, workspaceId?: string) =>
     invoke<DraftInfo>('save_draft', {

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useNoteStore } from "@/stores/note-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useNavigate } from "react-router-dom";
 
 interface CreateNoteDialogProps {
   open: boolean;
@@ -20,12 +21,16 @@ export function CreateNoteDialog({ open, onOpenChange }: CreateNoteDialogProps) 
   const [content, setContent] = React.useState("");
   const { createNote } = useNoteStore();
   const { activeWorkspaceId } = useWorkspaceStore();
+  const navigate = useNavigate();
 
   const handleCreate = async () => {
     if (!content.trim()) return;
-    await createNote(content, activeWorkspaceId || undefined);
+    const note = await createNote(content, activeWorkspaceId || undefined);
     setContent("");
     onOpenChange(false);
+    // The URL is the source of truth for the open note, so a fresh note must
+    // update it, otherwise the deep link would snap back to the old one.
+    if (note) navigate(`/note/${note.meta.id}`);
   };
 
   return (

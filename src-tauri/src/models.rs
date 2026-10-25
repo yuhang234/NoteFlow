@@ -147,7 +147,7 @@ impl Default for AppConfig {
         Self {
             data_dir: default_vault,
             theme: "system".to_string(),
-            language: "en".to_string(),
+            language: "zh-CN".to_string(),
             editor_font_size: 15,
             week_start_day: 1, // Monday
             auto_save_interval: 5,

@@ -2,6 +2,7 @@ import * as React from "react";
 import { Map, MapPin } from "lucide-react";
 import { useNoteStore } from "@/stores/note-store";
 import { NoteDetail } from "@/components/NoteDetail";
+import { noteTitle } from "@/lib/markdown-text";
 
 export function MapPage() {
   const { notes, fetchNotes } = useNoteStore();

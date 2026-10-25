@@ -2,7 +2,6 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/layouts/AppLayout";
 import { TimelinePage } from "@/pages/TimelinePage";
-import { EditorPage } from "@/pages/EditorPage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { TagsPage } from "@/pages/TagsPage";
@@ -23,7 +22,7 @@ export function App() {
           <Routes>
             <Route element={<AppLayout />}>
               <Route path="/" element={<TimelinePage />} />
-              <Route path="/note/:id" element={<EditorPage />} />
+              <Route path="/note/:id" element={<TimelinePage />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/tags" element={<TagsPage />} />

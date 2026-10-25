@@ -18,11 +18,14 @@ import { useNoteStore } from "@/stores/note-store";
 import type { NoteFile } from "@/lib/tauri-api";
 import { NoteDetail } from "@/components/NoteDetail";
 import { cn } from "@/lib/utils";
+import { useUIStore } from "@/stores/ui-store";
+import { noteTitle } from "@/lib/markdown-text";
 
 export function CalendarPage() {
   const [currentDate, setCurrentDate] = React.useState(new Date());
   const [selectedDate, setSelectedDate] = React.useState<Date>(new Date());
   const { notes, fetchNotes } = useNoteStore();
+  const weekStartDay = useUIStore((state) => state.weekStartDay);
 
   React.useEffect(() => {
     fetchNotes();
@@ -30,8 +33,8 @@ export function CalendarPage() {
 
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
-  const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
+  const startDate = startOfWeek(monthStart, { weekStartsOn: weekStartDay });
+  const endDate = endOfWeek(monthEnd, { weekStartsOn: weekStartDay });
 
   const days = eachDayOfInterval({ start: startDate, end: endDate });
 
@@ -118,13 +121,12 @@ export function CalendarPage() {
         {/* Days grid */}
         <div className="p-4 flex-1">
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-muted-foreground mb-2">
-            <div>一</div>
-            <div>二</div>
-            <div>三</div>
-            <div>四</div>
-            <div>五</div>
-            <div>六</div>
-            <div>日</div>
+            {(weekStartDay === 1
+              ? ["一", "二", "三", "四", "五", "六", "日"]
+              : ["日", "一", "二", "三", "四", "五", "六"]
+            ).map((label) => (
+              <div key={label}>{label}</div>
+            ))}
           </div>
 
           <div className="grid grid-cols-7 gap-1">

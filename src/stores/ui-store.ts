@@ -10,6 +10,7 @@ interface UIStoreState {
   editMode: EditMode;
   fontSize: number;
   autoSaveInterval: number; // in seconds
+  weekStartDay: 0 | 1; // 0 = Sunday, 1 = Monday
   quickCaptureOpen: boolean;
 
   // Actions
@@ -21,6 +22,7 @@ interface UIStoreState {
   setEditMode: (mode: EditMode) => void;
   setFontSize: (size: number) => void;
   setAutoSaveInterval: (seconds: number) => void;
+  setWeekStartDay: (day: 0 | 1) => void;
   setQuickCaptureOpen: (open: boolean) => void;
 }
 
@@ -39,6 +41,7 @@ export const useUIStore = create<UIStoreState>((set) => ({
   editMode: (localStorage.getItem('noteflow-edit-mode') as EditMode) || 'split',
   fontSize: initialFontSize,
   autoSaveInterval: Number(localStorage.getItem('noteflow-autosave-interval')) || 2,
+  weekStartDay: localStorage.getItem('noteflow-week-start') === '0' ? 0 : 1,
   quickCaptureOpen: false,
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -69,6 +72,10 @@ export const useUIStore = create<UIStoreState>((set) => ({
     const clamped = Math.min(Math.max(seconds, 1), 30);
     localStorage.setItem('noteflow-autosave-interval', clamped.toString());
     set({ autoSaveInterval: clamped });
+  },
+  setWeekStartDay: (weekStartDay) => {
+    localStorage.setItem('noteflow-week-start', weekStartDay.toString());
+    set({ weekStartDay });
   },
   setQuickCaptureOpen: (quickCaptureOpen) => set({ quickCaptureOpen }),
 }));

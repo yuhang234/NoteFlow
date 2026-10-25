@@ -15,7 +15,9 @@ import {
   Check,
   Loader2,
   FolderOpen,
+  FileDown,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { NoteFile, api } from "@/lib/tauri-api";
 import { useNoteStore } from "@/stores/note-store";
 import { useUIStore, EditMode } from "@/stores/ui-store";
@@ -24,6 +26,7 @@ import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { TagInput } from "@/components/TagInput";
 import { useExternalNoteChange } from "@/lib/vault-events";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 
 interface NoteDetailProps {
   note: NoteFile;
@@ -34,6 +37,8 @@ const escapeRegExp = (value: string) =>
 
 export function NoteDetail({ note }: NoteDetailProps) {
   const { updateNote, deleteNote, pinNote, archiveNote } = useNoteStore();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const { editMode, setEditMode, autoSaveInterval } = useUIStore();
 
   const [content, setContent] = React.useState(note.content);
@@ -438,7 +443,19 @@ export function NoteDetail({ note }: NoteDetailProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => archiveNote(note.meta.id, !note.meta.archived)}
+            onClick={async () => {
+              const nextArchived = !note.meta.archived;
+              await archiveNote(note.meta.id, nextArchived);
+              toast({
+                title: nextArchived ? "已归档" : "已取消归档",
+                description: nextArchived
+                  ? "可在侧栏的「归档」中找回"
+                  : "笔记已回到时间线",
+                type: "success",
+              });
+              // Archived notes leave the timeline, so the deep link would dangle.
+              if (nextArchived) navigate("/");
+            }}
             title={note.meta.archived ? "取消归档" : "归档笔记"}
             className="h-7 w-7"
           >
@@ -452,7 +469,28 @@ export function NoteDetail({ note }: NoteDetailProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => deleteNote(note.meta.id)}
+            onClick={async () => {
+              try {
+                const path = await api.exportNoteHtml(note.meta.id);
+                toast({ title: "已导出为 HTML", description: path, type: "success" });
+              } catch (err) {
+                toast({ title: "导出失败", description: String(err), type: "destructive" });
+              }
+            }}
+            title="导出为 HTML"
+            className="h-7 w-7"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={async () => {
+              await deleteNote(note.meta.id);
+              toast({ title: "已放入废纸篓", description: "可在「废纸篓」中恢复", type: "default" });
+              navigate("/");
+            }}
             title="放入废纸篓"
             className="h-7 w-7 text-destructive hover:bg-destructive/10"
           >

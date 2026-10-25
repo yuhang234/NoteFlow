@@ -2,6 +2,7 @@ import * as React from "react";
 import { Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useNoteStore } from "@/stores/note-store";
 import { Button } from "@/components/ui/button";
+import { noteTitle } from "@/lib/markdown-text";
 
 export function TrashPage() {
   const { trashNotes, fetchTrash, restoreNote, permanentDeleteNote } = useNoteStore();

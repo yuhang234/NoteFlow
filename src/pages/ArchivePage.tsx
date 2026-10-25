@@ -4,9 +4,13 @@ import { useNoteStore } from "@/stores/note-store";
 import { Button } from "@/components/ui/button";
 import { NoteDetail } from "@/components/NoteDetail";
 import { cn } from "@/lib/utils";
+import { noteTitle } from "@/lib/markdown-text";
+import { useToast } from "@/components/ui/toast";
+import { format } from "date-fns";
 
 export function ArchivePage() {
   const { notes, fetchNotes, archiveNote } = useNoteStore();
+  const { toast } = useToast();
   const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -43,9 +47,14 @@ export function ArchivePage() {
             </div>
           ) : (
             archivedNotes.map((note) => {
-              const title =
-                note.content.trim().split("\n")[0].replace(/^#+\s*/, "") ||
-                "无标题笔记";
+              const title = noteTitle(note.content);
+              const updatedAt = note.meta.updated_at || note.meta.created_at;
+              let updatedLabel = "";
+              try {
+                updatedLabel = format(new Date(updatedAt), "yyyy-MM-dd HH:mm");
+              } catch {
+                updatedLabel = updatedAt;
+              }
               return (
                 <div
                   key={note.meta.id}
@@ -62,9 +71,15 @@ export function ArchivePage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        archiveNote(note.meta.id, false);
+                        await archiveNote(note.meta.id, false);
+                        if (selectedNoteId === note.meta.id) setSelectedNoteId(null);
+                        toast({
+                          title: "已取消归档",
+                          description: "笔记已回到时间线",
+                          type: "success",
+                        });
                       }}
                       title="取消归档"
                       className="h-6 w-6 text-muted-foreground hover:text-foreground"
@@ -72,6 +87,9 @@ export function ArchivePage() {
                       <RotateCcw className="h-3 w-3" />
                     </Button>
                   </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {updatedLabel}
+                  </p>
                 </div>
               );
             })
