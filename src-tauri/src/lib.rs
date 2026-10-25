@@ -34,12 +34,14 @@ pub fn run() {
     // 2. Initialize Database
     let db_path = data_dir.join(".noteflow").join("noteflow.db");
     let db = Database::new(&db_path).expect("Failed to initialize NoteFlow SQLite database");
-    let _ = db.rebuild_index(&data_dir);
+    // The initial index rebuild runs in the background (see `setup`), so the
+    // window can appear immediately even with a large vault.
 
     let app_state = AppState {
         db: Mutex::new(db),
         config: Mutex::new(app_config),
         data_dir: Mutex::new(data_dir),
+        watcher: Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -120,7 +122,45 @@ pub fn run() {
             commands::list_drafts,
             commands::delete_draft,
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            // Watch the vault so edits made outside NoteFlow (another editor,
+            // sync client, ...) reach the UI instead of being overwritten by
+            // the next autosave.
+            let handle = app.handle().clone();
+            let state = app.state::<AppState>();
+            let notes_dir = state
+                .data_dir
+                .lock()
+                .map(|dir| dir.join("notes"))
+                .unwrap_or_else(|_| PathBuf::from("notes"));
+
+            match watcher::watch_vault(handle.clone(), &notes_dir) {
+                Ok(vault_watcher) => {
+                    if let Ok(mut slot) = state.watcher.lock() {
+                        *slot = Some(vault_watcher);
+                    }
+                }
+                Err(err) => log::warn!("File watcher disabled: {err}"),
+            }
+
+            // Index the vault without blocking window creation.
+            let index_handle = handle.clone();
+            std::thread::spawn(move || {
+                let state = index_handle.state::<AppState>();
+                let base = match state.data_dir.lock() {
+                    Ok(dir) => dir.clone(),
+                    Err(_) => return,
+                };
+                let db = match state.db.lock() {
+                    Ok(db) => db,
+                    Err(_) => return,
+                };
+                match db.rebuild_index(&base) {
+                    Ok(count) => log::info!("Indexed {count} notes"),
+                    Err(err) => log::warn!("Index rebuild failed: {err}"),
+                }
+            });
+
             log::info!("NoteFlow backend initialized successfully");
             Ok(())
         })

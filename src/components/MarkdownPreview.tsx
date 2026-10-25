@@ -14,27 +14,69 @@ import "katex/dist/katex.min.css";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/tauri-api";
 import { markdownSanitizeSchema } from "@/lib/sanitize-schema";
+import { useUIStore } from "@/stores/ui-store";
 
 interface MarkdownPreviewProps {
   content: string;
   className?: string;
 }
 
-// In-memory cache for loaded base64 attachment images
+// In-memory cache for loaded base64 attachment images. Base64 payloads are
+// large, so keep it bounded instead of growing for the whole session.
 const attachmentImageCache = new Map<string, string>();
+const ATTACHMENT_CACHE_LIMIT = 40;
+
+function cacheAttachmentImage(src: string, dataUrl: string) {
+  if (attachmentImageCache.size >= ATTACHMENT_CACHE_LIMIT) {
+    const oldest = attachmentImageCache.keys().next().value;
+    if (oldest !== undefined) attachmentImageCache.delete(oldest);
+  }
+  attachmentImageCache.set(src, dataUrl);
+}
 
 export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProps) {
   const [html, setHtml] = React.useState<string>("");
   const containerRef = React.useRef<HTMLDivElement>(null);
 
+  const isDark = useUIStore((state) => state.theme) === "dark";
+
+  // Debounce so a fast typist does not re-run the whole unified pipeline on
+  // every keystroke; the preview stays one frame behind at most.
+  const [renderContent, setRenderContent] = React.useState(content);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setRenderContent(content), 120);
+    return () => clearTimeout(timer);
+  }, [content]);
+
   React.useEffect(() => {
     mermaid.initialize({
       startOnLoad: false,
-      theme: "default",
+      theme: isDark ? "dark" : "default",
       // Notes may come from untrusted files: never allow scripts/links in diagrams.
       securityLevel: "strict",
     });
-  }, []);
+  }, [isDark]);
+
+  // Re-render already drawn diagrams when the app theme changes.
+  React.useEffect(() => {
+    const nodes = containerRef.current?.querySelectorAll<HTMLElement>(
+      ".mermaid-diagram[data-mermaid-source]"
+    );
+    if (!nodes || nodes.length === 0) return;
+    nodes.forEach(async (node, index) => {
+      const source = node.dataset.mermaidSource;
+      if (!source) return;
+      try {
+        const { svg } = await mermaid.render(
+          `mermaid-theme-${Date.now()}-${index}`,
+          source
+        );
+        node.innerHTML = svg;
+      } catch (err) {
+        console.error("Mermaid theme re-render failed:", err);
+      }
+    });
+  }, [isDark]);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -53,7 +95,7 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
           .use(rehypeKatex)
           .use(rehypeStringify);
 
-        const file = await processor.process(content);
+        const file = await processor.process(renderContent);
         if (isMounted) {
           setHtml(String(file));
         }
@@ -70,7 +112,7 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
     return () => {
       isMounted = false;
     };
-  }, [content]);
+  }, [renderContent]);
 
   // Resolve local attachment images & render mermaid
   React.useEffect(() => {
@@ -87,6 +129,7 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
         if (parent) {
           const div = document.createElement("div");
           div.className = "mermaid-diagram flex justify-center my-4";
+          div.dataset.mermaidSource = graphDefinition;
           div.innerHTML = svg;
           parent.replaceWith(div);
         }
@@ -110,7 +153,7 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
         } else {
           try {
             const dataUrl = await api.readAttachmentBase64(src);
-            attachmentImageCache.set(src, dataUrl);
+            cacheAttachmentImage(src, dataUrl);
             img.src = dataUrl;
           } catch (err) {
             console.warn(`Failed to load local attachment image ${src}:`, err);

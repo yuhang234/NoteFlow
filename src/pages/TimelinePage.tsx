@@ -2,10 +2,12 @@ import * as React from "react";
 import { useNoteStore } from "@/stores/note-store";
 import { NoteList } from "@/components/NoteList";
 import { NoteDetail } from "@/components/NoteDetail";
-import { FileEdit } from "lucide-react";
+import { FileEdit, PanelLeftOpen } from "lucide-react";
+import { useUIStore } from "@/stores/ui-store";
 
 export function TimelinePage() {
   const { notes, currentNote, selectNote, fetchNotes, isLoading } = useNoteStore();
+  const { noteListOpen, toggleNoteList } = useUIStore();
 
   React.useEffect(() => {
     fetchNotes();
@@ -25,16 +27,27 @@ export function TimelinePage() {
   return (
     <div className="flex w-full h-full">
       {/* Middle list column */}
-      <div className="w-80 h-full shrink-0">
-        <NoteList
-          notes={activeNotes}
-          selectedNoteId={currentNote?.meta.id}
-          onSelectNote={selectNote}
-        />
-      </div>
+      {noteListOpen && (
+        <div className="w-80 h-full shrink-0">
+          <NoteList
+            notes={activeNotes}
+            selectedNoteId={currentNote?.meta.id}
+            onSelectNote={selectNote}
+          />
+        </div>
+      )}
 
       {/* Right detail/editor column */}
-      <div className="flex-1 h-full overflow-hidden bg-background">
+      <div className="relative flex-1 h-full overflow-hidden bg-background">
+        {!noteListOpen && (
+          <button
+            onClick={toggleNoteList}
+            title="展开笔记列表"
+            className="absolute left-2 top-2 z-20 h-7 w-7 rounded-md flex items-center justify-center bg-card border border-border text-muted-foreground hover:text-foreground shadow-xs"
+          >
+            <PanelLeftOpen className="h-3.5 w-3.5" />
+          </button>
+        )}
         {currentNote ? (
           <NoteDetail key={currentNote.meta.id} note={currentNote} />
         ) : (

@@ -35,6 +35,25 @@
     --sidebar-width: 260px;
   }
 
+  /* Theme-aware tag colours: the hue comes from a per-tag hash. */
+  .tag-badge {
+    background-color: hsl(var(--tag-hue, 220) 80% 95% / 0.85);
+    color: hsl(var(--tag-hue, 220) 80% 25%);
+    border-color: hsl(var(--tag-hue, 220) 60% 85%);
+  }
+
+  .dark .tag-badge {
+    background-color: hsl(var(--tag-hue, 220) 60% 50% / 0.22);
+    color: hsl(var(--tag-hue, 220) 85% 80%);
+    border-color: hsl(var(--tag-hue, 220) 60% 50% / 0.45);
+  }
+
+  .paper .tag-badge {
+    background-color: hsl(var(--tag-hue, 220) 55% 90% / 0.9);
+    color: hsl(var(--tag-hue, 220) 60% 28%);
+    border-color: hsl(var(--tag-hue, 220) 45% 78%);
+  }
+
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -129,14 +148,15 @@ body {
   color: hsl(var(--foreground));
   background-color: hsl(var(--background));
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  user-select: none;
   overflow: hidden;
   height: 100vh;
   width: 100vw;
 }
 
-input, textarea, [contenteditable="true"] {
-  user-select: text;
+/* Keep chrome labels from being selected by accident, but never block the
+   note content itself. */
+button, label, [role="tab"] {
+  user-select: none;
 }
 
 /* Custom scrollbars */
@@ -167,7 +187,7 @@ input, textarea, [contenteditable="true"] {
 .noteflow-markdown {
   color: hsl(var(--foreground));
   line-height: 1.75;
-  font-size: 15px;
+  font-size: var(--noteflow-font-size, 15px);
   word-break: break-word;
 }
 

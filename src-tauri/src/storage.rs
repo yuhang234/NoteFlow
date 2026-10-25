@@ -1,9 +1,12 @@
 use crate::error::{AppError, Result};
 use crate::models::{NoteFile, NoteMeta};
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 pub fn ensure_vault_structure(base: &Path) -> Result<()> {
@@ -132,6 +135,7 @@ pub fn create_note(base: &Path, content: &str, meta: &NoteMeta) -> Result<PathBu
     let note_path = base.join("notes").join(filename);
     let serialized = serialize_note(meta, content);
     atomic_write(&note_path, serialized.as_bytes())?;
+    mark_self_write(&note_path);
     Ok(note_path)
 }
 
@@ -183,12 +187,50 @@ pub fn find_trash_path_by_id(base: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// Serialize `content` + `meta` into an already resolved note path.
+/// Paths written by this process, used to ignore the file watcher events that
+/// our own saves generate.
+fn recent_writes() -> &'static Mutex<HashMap<String, Instant>> {
+    static RECENT_WRITES: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    RECENT_WRITES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn write_key(path: &Path) -> String {
+    let raw = path.to_string_lossy().to_string();
+    if cfg!(windows) {
+        raw.to_lowercase()
+    } else {
+        raw
+    }
+}
+
+pub(crate) fn mark_self_write(path: &Path) {
+    if let Ok(mut map) = recent_writes().lock() {
+        let now = Instant::now();
+        map.retain(|_, at| now.duration_since(*at) < Duration::from_secs(30));
+        map.insert(write_key(path), now);
+    }
+}
+
+/// True when `path` was written by NoteFlow itself a moment ago. The marker is
+/// consumed so a later external edit is still reported.
+pub fn is_self_write(path: &Path) -> bool {
+    let Ok(mut map) = recent_writes().lock() else {
+        return false;
+    };
+    let key = write_key(path);
+    match map.remove(&key) {
+        Some(at) => at.elapsed() < Duration::from_secs(5),
+        None => false,
+    }
+}
+
 pub fn write_note_at(path: &Path, content: &str, meta: &NoteMeta) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let serialized = serialize_note(meta, content);
     atomic_write(path, serialized.as_bytes())?;
+    mark_self_write(path);
     Ok(())
 }
 
@@ -205,6 +247,8 @@ pub fn delete_note(base: &Path, id: &str) -> Result<()> {
     let dest = base.join("trash").join(source.file_name().unwrap());
     fs::create_dir_all(base.join("trash"))?;
     fs::rename(&source, &dest)?;
+    mark_self_write(&source);
+    mark_self_write(&dest);
     Ok(())
 }
 
@@ -215,6 +259,8 @@ pub fn restore_note(base: &Path, id: &str) -> Result<()> {
     let dest = base.join("notes").join(source.file_name().unwrap());
     fs::create_dir_all(base.join("notes"))?;
     fs::rename(&source, &dest)?;
+    mark_self_write(&source);
+    mark_self_write(&dest);
     Ok(())
 }
 

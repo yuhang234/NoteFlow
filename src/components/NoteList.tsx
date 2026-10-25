@@ -1,7 +1,7 @@
 import * as React from "react";
 import { NoteFile } from "@/lib/tauri-api";
 import { NoteCard } from "@/components/NoteCard";
-import { ArrowDownUp, FileText } from "lucide-react";
+import { ArrowDownUp, FileText, PanelLeftClose } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNoteStore } from "@/stores/note-store";
+import { useUIStore } from "@/stores/ui-store";
 
 interface NoteListProps {
   notes: NoteFile[];
@@ -18,6 +19,7 @@ interface NoteListProps {
 
 export function NoteList({ notes, selectedNoteId, onSelectNote }: NoteListProps) {
   const { sortBy, sortOrder, setSort } = useNoteStore();
+  const toggleNoteList = useUIStore((state) => state.toggleNoteList);
 
   return (
     <div className="flex flex-col h-full bg-muted/20 border-r border-border">
@@ -26,6 +28,7 @@ export function NoteList({ notes, selectedNoteId, onSelectNote }: NoteListProps)
           笔记列表 ({notes.length})
         </span>
 
+        <div className="flex items-center gap-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted transition-colors">
@@ -45,6 +48,15 @@ export function NoteList({ notes, selectedNoteId, onSelectNote }: NoteListProps)
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <button
+          onClick={toggleNoteList}
+          title="收起列表"
+          className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          <PanelLeftClose className="h-3.5 w-3.5" />
+        </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">

@@ -15,6 +15,7 @@ import { zhCN } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNoteStore } from "@/stores/note-store";
+import type { NoteFile } from "@/lib/tauri-api";
 import { NoteDetail } from "@/components/NoteDetail";
 import { cn } from "@/lib/utils";
 
@@ -37,32 +38,51 @@ export function CalendarPage() {
   const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
   const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
 
+  // Timestamps are stored in UTC; bucket them by the *local* calendar day so the
+  // grid and the day list always agree.
+  const localDayKey = (iso: string) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? "" : format(date, "yyyy-MM-dd");
+  };
+
+  // Archived notes stay out of the calendar view.
+  const activeNotes = React.useMemo(
+    () => notes.filter((note) => !note.meta.archived),
+    [notes]
+  );
+
   // Filter notes for the selected date
   const selectedDateNotes = React.useMemo(() => {
-    return notes.filter((note) => {
-      try {
-        const noteDate = new Date(note.meta.created_at);
-        return isSameDay(noteDate, selectedDate);
-      } catch {
-        return false;
-      }
-    });
-  }, [notes, selectedDate]);
+    const key = format(selectedDate, "yyyy-MM-dd");
+    return activeNotes.filter((note) => localDayKey(note.meta.created_at) === key);
+  }, [activeNotes, selectedDate]);
 
   // Map notes count per day
   const notesCountByDate = React.useMemo(() => {
     const map = new Map<string, number>();
-    notes.forEach((note) => {
-      const d = note.meta.created_at.split("T")[0];
-      map.set(d, (map.get(d) || 0) + 1);
+    activeNotes.forEach((note) => {
+      const key = localDayKey(note.meta.created_at);
+      if (key) map.set(key, (map.get(key) || 0) + 1);
     });
     return map;
-  }, [notes]);
+  }, [activeNotes]);
 
-  const [selectedNote, setSelectedNote] = React.useState(selectedDateNotes[0] || null);
+  const [selectedNote, setSelectedNote] = React.useState<NoteFile | null>(
+    selectedDateNotes[0] || null
+  );
 
+  // Keep the current selection (and its fresh content) instead of jumping back
+  // to the first note every time an autosave refreshes the note list.
   React.useEffect(() => {
-    setSelectedNote(selectedDateNotes[0] || null);
+    setSelectedNote((previous) => {
+      if (previous) {
+        const refreshed = selectedDateNotes.find(
+          (note) => note.meta.id === previous.meta.id
+        );
+        if (refreshed) return refreshed;
+      }
+      return selectedDateNotes[0] || null;
+    });
   }, [selectedDateNotes]);
 
   return (

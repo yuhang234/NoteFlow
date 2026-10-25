@@ -20,16 +20,25 @@ interface UIStoreState {
   setTheme: (theme: Theme) => void;
   setEditMode: (mode: EditMode) => void;
   setFontSize: (size: number) => void;
+  setAutoSaveInterval: (seconds: number) => void;
   setQuickCaptureOpen: (open: boolean) => void;
 }
+
+/** Keep the preview/editor font size in one CSS variable so both stay in sync. */
+export function applyFontSize(size: number) {
+  document.documentElement.style.setProperty('--noteflow-font-size', `${size}px`);
+}
+
+const initialFontSize = Number(localStorage.getItem('noteflow-font-size')) || 15;
+applyFontSize(initialFontSize);
 
 export const useUIStore = create<UIStoreState>((set) => ({
   sidebarOpen: true,
   noteListOpen: true,
   theme: (localStorage.getItem('noteflow-theme') as Theme) || 'light',
   editMode: (localStorage.getItem('noteflow-edit-mode') as EditMode) || 'split',
-  fontSize: Number(localStorage.getItem('noteflow-font-size')) || 15,
-  autoSaveInterval: 2,
+  fontSize: initialFontSize,
+  autoSaveInterval: Number(localStorage.getItem('noteflow-autosave-interval')) || 2,
   quickCaptureOpen: false,
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
@@ -53,7 +62,13 @@ export const useUIStore = create<UIStoreState>((set) => ({
   },
   setFontSize: (fontSize) => {
     localStorage.setItem('noteflow-font-size', fontSize.toString());
+    applyFontSize(fontSize);
     set({ fontSize });
+  },
+  setAutoSaveInterval: (seconds) => {
+    const clamped = Math.min(Math.max(seconds, 1), 30);
+    localStorage.setItem('noteflow-autosave-interval', clamped.toString());
+    set({ autoSaveInterval: clamped });
   },
   setQuickCaptureOpen: (quickCaptureOpen) => set({ quickCaptureOpen }),
 }));

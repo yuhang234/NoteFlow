@@ -274,6 +274,25 @@ impl Database {
             .map(std::path::PathBuf::from)
     }
 
+    /// Look up a note id from its on-disk path (used by the file watcher).
+    pub fn note_id_by_path(&self, path: &Path) -> Option<String> {
+        let raw = path.to_string_lossy().to_string();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM notes_meta WHERE file_path = ?1")
+            .ok()?;
+        stmt.query_row(params![raw], |row| row.get::<_, String>(0))
+            .ok()
+    }
+
+    /// Drop a note from the index when its file disappeared outside the app.
+    pub fn remove_note_by_path(&self, path: &Path) -> Result<()> {
+        if let Some(id) = self.note_id_by_path(path) {
+            self.remove_note(&id)?;
+        }
+        Ok(())
+    }
+
     pub fn remove_note(&self, id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM notes_meta WHERE id = ?", params![id])?;
         self.conn.execute("DELETE FROM tags WHERE note_id = ?", params![id])?;

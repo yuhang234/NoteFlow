@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "noteflow-app",
+  "productName": "NoteFlow",
   "version": "0.1.0",
   "identifier": "com.fuyou.noteflow-app",
   "build": {
@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "noteflow-app",
-        "width": 800,
-        "height": 600
+        "title": "NoteFlow",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true
       }
     ],
     "security": {

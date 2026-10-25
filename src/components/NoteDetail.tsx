@@ -22,6 +22,7 @@ import { useUIStore, EditMode } from "@/stores/ui-store";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { TagInput } from "@/components/TagInput";
+import { useExternalNoteChange } from "@/lib/vault-events";
 import { Button } from "@/components/ui/button";
 
 interface NoteDetailProps {
@@ -33,7 +34,7 @@ const escapeRegExp = (value: string) =>
 
 export function NoteDetail({ note }: NoteDetailProps) {
   const { updateNote, deleteNote, pinNote, archiveNote } = useNoteStore();
-  const { editMode, setEditMode } = useUIStore();
+  const { editMode, setEditMode, autoSaveInterval } = useUIStore();
 
   const [content, setContent] = React.useState(note.content);
   const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving" | "unsaved">("saved");
@@ -41,16 +42,45 @@ export function NoteDetail({ note }: NoteDetailProps) {
   const [isDragging, setIsDragging] = React.useState(false);
 
   const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const splitRef = React.useRef<HTMLDivElement>(null);
+  const [splitRatio, setSplitRatio] = React.useState(() => {
+    const stored = Number(localStorage.getItem("noteflow-split-ratio"));
+    return Number.isFinite(stored) && stored >= 0.2 && stored <= 0.8 ? stored : 0.5;
+  });
+  const [isResizing, setIsResizing] = React.useState(false);
   const contentRef = React.useRef(content);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   contentRef.current = content;
+
+  const saveStatusRef = React.useRef(saveStatus);
+  saveStatusRef.current = saveStatus;
 
   // Sync state if active note changes
   React.useEffect(() => {
     setContent(note.content);
     setSaveStatus("saved");
   }, [note.meta.id]);
+
+  // Follow the store when the note is refreshed from disk, but never while
+  // there are unsaved local edits.
+  React.useEffect(() => {
+    if (saveStatusRef.current !== "saved") return;
+    setContent(note.content);
+  }, [note.content]);
+
+  // External edits (another editor, sync client) are reloaded instead of being
+  // silently overwritten by the next autosave.
+  useExternalNoteChange(note.file_path, note.meta.id, () => {
+    if (saveStatusRef.current !== "saved") return;
+    api
+      .getNote(note.meta.id)
+      .then((fresh) => {
+        setContent(fresh.content);
+        setSaveStatus("saved");
+      })
+      .catch((err) => console.error("Reload note failed:", err));
+  });
 
   // Flush save on unmount or note switch
   React.useEffect(() => {
@@ -77,6 +107,30 @@ export function NoteDetail({ note }: NoteDetailProps) {
       setSaveStatus("unsaved");
     }
   }, [note.meta.id, updateNote]);
+
+  // Drag the divider between editor and preview.
+  React.useEffect(() => {
+    if (!isResizing) return;
+    const handleMove = (event: MouseEvent) => {
+      const rect = splitRef.current?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      const ratio = (event.clientX - rect.left) / rect.width;
+      setSplitRatio(Math.min(0.8, Math.max(0.2, ratio)));
+    };
+    const handleUp = () => {
+      setIsResizing(false);
+      setSplitRatio((ratio) => {
+        localStorage.setItem("noteflow-split-ratio", ratio.toFixed(3));
+        return ratio;
+      });
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isResizing]);
 
   // Keyboard shortcut Ctrl+S / Cmd+S
   React.useEffect(() => {
@@ -106,7 +160,7 @@ export function NoteDetail({ note }: NoteDetailProps) {
         console.error("Auto save failed:", err);
         setSaveStatus("unsaved");
       }
-    }, 1000);
+    }, Math.max(autoSaveInterval, 1) * 1000);
   };
 
   const uploadFiles = async (files: FileList | File[]) => {
@@ -419,11 +473,28 @@ export function NoteDetail({ note }: NoteDetailProps) {
         )}
         {editMode === "preview" && <MarkdownPreview content={content} />}
         {editMode === "split" && (
-          <div className="flex h-full divide-x divide-border">
-            <div className="w-1/2 h-full">
+          <div
+            ref={splitRef}
+            className={`flex h-full ${isResizing ? "select-none cursor-col-resize" : ""}`}
+          >
+            <div className="h-full min-w-0" style={{ width: `${splitRatio * 100}%` }}>
               <MarkdownEditor value={content} onChange={handleContentChange} />
             </div>
-            <div className="w-1/2 h-full bg-muted/10 overflow-hidden">
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              title="拖动调整分栏宽度（双击恢复 50/50）"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                setIsResizing(true);
+              }}
+              onDoubleClick={() => {
+                setSplitRatio(0.5);
+                localStorage.setItem("noteflow-split-ratio", "0.5");
+              }}
+              className="w-1.5 shrink-0 cursor-col-resize bg-border/60 hover:bg-primary/60 transition-colors"
+            />
+            <div className="h-full min-w-0 flex-1 bg-muted/10 overflow-hidden">
               <MarkdownPreview content={content} />
             </div>
           </div>

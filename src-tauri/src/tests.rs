@@ -5,7 +5,8 @@ mod core_verification_tests {
     use noteflow_app_lib::query::QueryParser;
     use noteflow_app_lib::storage::{
         create_note, delete_note, ensure_vault_structure, extract_tags, extract_title,
-        list_notes, list_trash, read_note, restore_note, update_note,
+        is_self_write, list_notes, list_trash, mark_self_write, read_note, restore_note,
+        update_note,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -483,5 +484,20 @@ Another line with #productivity tag.
         // Snippet markers are plain text, never raw HTML.
         let snippet = &db.search("学习", 10, 0).expect("search").remove(0).snippet;
         assert!(!snippet.contains("<script"));
+    }
+
+    #[test]
+    fn test_self_write_marker_is_consumed_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("20250101_120000.md");
+        let other = dir.path().join("20250101_120001.md");
+
+        mark_self_write(&path);
+        // The marker suppresses exactly one watcher event...
+        assert!(is_self_write(&path));
+        // ...so a genuine external edit right after is still reported.
+        assert!(!is_self_write(&path));
+        // Unrelated files are never suppressed.
+        assert!(!is_self_write(&other));
     }
 }

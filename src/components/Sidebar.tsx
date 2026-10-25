@@ -16,6 +16,7 @@ import {
   Sun,
   Moon,
   BookOpen,
+  PanelLeftClose,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore, Theme } from "@/stores/ui-store";
@@ -29,7 +30,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onCreateNote }: SidebarProps) {
-  const { theme, setTheme } = useUIStore();
+  const { theme, setTheme, toggleSidebar } = useUIStore();
   const { workspaces, activeWorkspaceId, setActiveWorkspace, fetchWorkspaces } =
     useWorkspaceStore();
   const { setWorkspaceFilter } = useNoteStore();
@@ -74,6 +75,7 @@ export function Sidebar({ onCreateNote }: SidebarProps) {
           </span>
         </div>
 
+        <div className="flex items-center gap-0.5">
         <Button
           variant="ghost"
           size="icon"
@@ -85,6 +87,17 @@ export function Sidebar({ onCreateNote }: SidebarProps) {
           {theme === "dark" && <Moon className="h-4 w-4 text-blue-400" />}
           {theme === "paper" && <BookOpen className="h-4 w-4 text-amber-700" />}
         </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleSidebar}
+          title="收起侧栏 (Ctrl/⌘+B)"
+          className="h-8 w-8"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </Button>
+        </div>
       </div>
 
       {/* Quick capture input */}

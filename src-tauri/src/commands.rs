@@ -24,6 +24,8 @@ pub struct AppState {
     pub db: Mutex<Database>,
     pub config: Mutex<AppConfig>,
     pub data_dir: Mutex<PathBuf>,
+    /// Keeps the filesystem watcher alive; replaced when the vault changes.
+    pub watcher: Mutex<Option<crate::watcher::VaultWatcher>>,
 }
 
 fn get_base_dir(state: &State<'_, AppState>) -> PathBuf {
@@ -772,6 +774,7 @@ pub async fn get_stats(
     db.get_stats()
 }
 
+
 // -------------------------------------------------------------
 // Config
 // -------------------------------------------------------------
@@ -807,11 +810,21 @@ pub async fn get_data_dir(
 
 #[tauri::command]
 pub async fn set_data_dir(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> std::result::Result<(), AppError> {
     let new_dir = PathBuf::from(path);
     storage::ensure_vault_structure(&new_dir)?;
+
+    // Re-open the index against the new vault and rebuild it, otherwise search
+    // and path lookups would keep pointing at the previous directory.
+    let db_path = new_dir.join(".noteflow").join("noteflow.db");
+    let db = Database::new(&db_path)?;
+    let _ = db.rebuild_index(&new_dir);
+    if let Ok(mut db_guard) = state.db.lock() {
+        *db_guard = db;
+    }
 
     if let Ok(mut dir_guard) = state.data_dir.lock() {
         *dir_guard = new_dir.clone();
@@ -820,6 +833,13 @@ pub async fn set_data_dir(
         cfg_guard.data_dir = new_dir.clone();
         let _ = config::save_config(&new_dir, &cfg_guard);
     }
+
+    // Move the file watcher over to the new vault.
+    if let Ok(mut slot) = state.watcher.lock() {
+        *slot = None;
+        *slot = crate::watcher::watch_vault(app.clone(), &new_dir.join("notes")).ok();
+    }
+
     Ok(())
 }
 

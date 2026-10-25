@@ -13,6 +13,23 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TagBadge } from "@/components/TagBadge";
+import { useToast } from "@/components/ui/toast";
+
+/** Strip the most common Markdown syntax so the card shows readable text. */
+function toPlainText(markdown: string) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
+    .replace(/\|/g, " ")
+    .replace(/[*_~]{1,3}/g, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 interface NoteCardProps {
   note: NoteFile;
@@ -22,12 +39,13 @@ interface NoteCardProps {
 
 export function NoteCard({ note, isSelected = false, onClick }: NoteCardProps) {
   const { pinNote, archiveNote, deleteNote } = useNoteStore();
+  const { toast } = useToast();
 
   // Extract title and snippet from markdown content
   const lines = note.content.trim().split("\n");
   const firstLine = lines[0] || "";
-  const title = firstLine.replace(/^#+\s*/, "").trim() || "无标题笔记";
-  const preview = lines.slice(1).join(" ").trim().slice(0, 100);
+  const title = toPlainText(firstLine) || "无标题笔记";
+  const preview = toPlainText(lines.slice(1).join(" ")).slice(0, 120);
 
   // Extract tags: #tag pattern
   const tags = React.useMemo(() => {
@@ -36,13 +54,21 @@ export function NoteCard({ note, isSelected = false, onClick }: NoteCardProps) {
     return Array.from(new Set(matches.map((m) => m.slice(1))));
   }, [note.content]);
 
+  // Show the last modification time; the creation time stays available on hover.
+  const updatedAt = note.meta.updated_at || note.meta.created_at;
   const formattedDate = React.useMemo(() => {
     try {
-      return format(new Date(note.meta.created_at), "yyyy-MM-dd HH:mm", {
-        locale: zhCN,
-      });
+      return format(new Date(updatedAt), "yyyy-MM-dd HH:mm", { locale: zhCN });
     } catch {
-      return note.meta.created_at;
+      return updatedAt;
+    }
+  }, [updatedAt]);
+
+  const createdTitle = React.useMemo(() => {
+    try {
+      return `创建于 ${format(new Date(note.meta.created_at), "yyyy-MM-dd HH:mm", { locale: zhCN })}`;
+    } catch {
+      return "";
     }
   }, [note.meta.created_at]);
 
@@ -84,7 +110,16 @@ export function NoteCard({ note, isSelected = false, onClick }: NoteCardProps) {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  archiveNote(note.meta.id, !note.meta.archived);
+                  const archiving = !note.meta.archived;
+                  void archiveNote(note.meta.id, archiving).then(() =>
+                    toast({
+                      title: archiving ? "已归档" : "已取消归档",
+                      description: archiving
+                        ? "可在「归档记录」中查看或恢复"
+                        : undefined,
+                      type: "success",
+                    })
+                  );
                 }}
               >
                 <Archive className="mr-2 h-4 w-4" />
@@ -126,7 +161,7 @@ export function NoteCard({ note, isSelected = false, onClick }: NoteCardProps) {
       )}
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1 pt-1 border-t border-border/40">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title={createdTitle}>
           <Calendar className="h-3 w-3" />
           <span>{formattedDate}</span>
         </div>

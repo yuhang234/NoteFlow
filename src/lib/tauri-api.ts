@@ -193,6 +193,8 @@ export const api = {
   deleteWorkspace: (id: string) => invoke<void>('delete_workspace', { id }),
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<void>('save_config', { config }),
+  /** Switch the vault directory: re-opens the index and moves the watcher. */
+  setDataDir: (path: string) => invoke<void>('set_data_dir', { path }),
   getStats: () => invoke<NoteStats>('get_stats'),
   getNotesByDate: (date: string) =>
     invoke<NoteFile[]>('get_notes_by_date', { date }),

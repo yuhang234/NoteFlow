@@ -4,10 +4,16 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUIStore, Theme } from "@/stores/ui-store";
+import { useNoteStore } from "@/stores/note-store";
+import { useToast } from "@/components/ui/toast";
 import { api, AppConfig } from "@/lib/tauri-api";
 
 export function SettingsPage() {
-  const { theme, setTheme, fontSize, setFontSize } = useUIStore();
+  const { theme, setTheme, fontSize, setFontSize, autoSaveInterval, setAutoSaveInterval } =
+    useUIStore();
+  const fetchNotes = useNoteStore((state) => state.fetchNotes);
+  const { toast } = useToast();
+  const [isSwitchingVault, setIsSwitchingVault] = React.useState(false);
   const [config, setConfig] = React.useState<AppConfig | null>(null);
   const [dataDir, setDataDir] = React.useState("");
 
@@ -19,17 +25,29 @@ export function SettingsPage() {
   }, []);
 
   const handleSaveDataDir = async () => {
-    if (config) {
-      await api.saveConfig({ ...config, data_dir: dataDir });
+    const next = dataDir.trim();
+    if (!next) return;
+    setIsSwitchingVault(true);
+    try {
+      // `set_data_dir` re-opens the SQLite index, rebuilds it and moves the
+      // file watcher; `save_config` alone would only write the config file.
+      await api.setDataDir(next);
+      setConfig((prev) => (prev ? { ...prev, data_dir: next } : prev));
+      await fetchNotes();
+      toast({ title: "数据目录已切换", description: next, type: "success" });
+    } catch (err) {
+      toast({ title: "切换数据目录失败", description: String(err), type: "destructive" });
+    } finally {
+      setIsSwitchingVault(false);
     }
   };
 
   const handleRebuildIndex = async () => {
     try {
       const count = await api.rebuildIndex();
-      alert(`索引重建成功，共索引 ${count} 篇笔记`);
+      toast({ title: `索引重建完成，共 ${count} 篇笔记`, type: "success" });
     } catch (e) {
-      alert(`重建索引失败: ${e}`);
+      toast({ title: "重建索引失败", description: String(e), type: "destructive" });
     }
   };
 
@@ -95,7 +113,26 @@ export function SettingsPage() {
                   min={12}
                   max={28}
                   value={fontSize}
-                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  onChange={(e) => setFontSize(Number(e.target.value) || 15)}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-medium">自动保存延迟 (秒)</label>
+                <p className="text-[11px] text-muted-foreground">
+                  停止输入后多久写入磁盘，Ctrl/⌘+S 可立即保存
+                </p>
+              </div>
+              <div className="flex items-center gap-2 w-32">
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={autoSaveInterval}
+                  onChange={(e) => setAutoSaveInterval(Number(e.target.value) || 2)}
                   className="h-8 text-xs"
                 />
               </div>
@@ -120,8 +157,13 @@ export function SettingsPage() {
                   onChange={(e) => setDataDir(e.target.value)}
                   className="h-8 text-xs font-mono"
                 />
-                <Button size="sm" onClick={handleSaveDataDir} className="h-8 text-xs">
-                  保存
+                <Button
+                  size="sm"
+                  onClick={handleSaveDataDir}
+                  disabled={isSwitchingVault}
+                  className="h-8 text-xs whitespace-nowrap"
+                >
+                  {isSwitchingVault ? "切换中..." : "切换并重建"}
                 </Button>
               </div>
             </div>
@@ -129,7 +171,9 @@ export function SettingsPage() {
             <div className="pt-2 border-t flex items-center justify-between">
               <div>
                 <span className="text-xs font-medium">全文检索索引</span>
-                <p className="text-[11px] text-muted-foreground">如果遇到搜索不准或笔记异常，可尝试重建 Tantivy 全文索引</p>
+                <p className="text-[11px] text-muted-foreground">
+                  搜索不准或笔记显示异常时，可重建 SQLite FTS5 全文索引
+                </p>
               </div>
               <Button variant="outline" size="sm" onClick={handleRebuildIndex} className="text-xs gap-1.5">
                 <RotateCcw className="h-3.5 w-3.5" /> 重建索引

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
@@ -23,7 +23,19 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<EditorView | null>(null);
+  const fontSizeCompartment = React.useRef(new Compartment());
+  const onChangeRef = React.useRef(onChange);
   const { fontSize } = useUIStore();
+
+  onChangeRef.current = onChange;
+
+  const fontSizeTheme = React.useCallback(
+    (size: number) =>
+      EditorView.theme({
+        "&": { fontSize: `${size}px` },
+      }),
+    []
+  );
 
   React.useEffect(() => {
     if (!containerRef.current) return;
@@ -48,6 +60,8 @@ export function MarkdownEditor({
         crosshairCursor(),
         highlightActiveLine(),
         highlightSelectionMatches(),
+        // Soft wrap long lines instead of scrolling horizontally.
+        EditorView.lineWrapping,
         markdown(),
         keymap.of([
           ...closeBracketsKeymap,
@@ -59,14 +73,13 @@ export function MarkdownEditor({
         ]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
-            const newDoc = update.state.doc.toString();
-            onChange(newDoc);
+            onChangeRef.current(update.state.doc.toString());
           }
         }),
+        fontSizeCompartment.current.of(fontSizeTheme(fontSize)),
         EditorView.theme({
           "&": {
             height: "100%",
-            fontSize: `${fontSize}px`,
             fontFamily:
               'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
           },
@@ -96,11 +109,28 @@ export function MarkdownEditor({
 
     viewRef.current = view;
 
+    // Reflow when the surrounding pane is resized (split drag, sidebar toggle).
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => view.requestMeasure())
+        : null;
+    observer?.observe(containerRef.current);
+
     return () => {
+      observer?.disconnect();
       view.destroy();
       viewRef.current = null;
     };
   }, []);
+
+  // Apply font size changes without rebuilding the editor state.
+  React.useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: fontSizeCompartment.current.reconfigure(fontSizeTheme(fontSize)),
+    });
+  }, [fontSize, fontSizeTheme]);
 
   // Sync external value updates to editor if changed externally
   React.useEffect(() => {
