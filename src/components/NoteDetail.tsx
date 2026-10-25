@@ -25,6 +25,7 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { TagInput } from "@/components/TagInput";
 import { useExternalNoteChange } from "@/lib/vault-events";
+import { ReactionsBar } from "@/components/ReactionsBar";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
@@ -499,9 +500,10 @@ export function NoteDetail({ note }: NoteDetailProps) {
         </div>
       </div>
 
-      {/* Tags line */}
-      <div className="px-4 py-2 border-b border-border/50">
+      {/* Tags + reactions line */}
+      <div className="px-4 py-2 border-b border-border/50 flex items-center gap-3 flex-wrap">
         <TagInput tags={tags} onChange={handleTagsChange} />
+        <ReactionsBar note={note} />
       </div>
 
       {/* Editor & Preview Workspace */}

@@ -177,9 +177,9 @@ export const api = {
   removeRelation: (id: string, related_id: string) =>
     invoke<void>('remove_relation', { id, relatedId: related_id }),
   addReaction: (id: string, emoji: string) =>
-    invoke<void>('add_reaction', { id, emoji }),
+    invoke<NoteFile>('add_reaction', { id, emoji }),
   removeReaction: (id: string, emoji: string) =>
-    invoke<void>('remove_reaction', { id, emoji }),
+    invoke<NoteFile>('remove_reaction', { id, emoji }),
   searchNotes: (query: string, limit?: number, offset?: number) =>
     invoke<SearchResult[]>('search_notes', { query, limit, offset }),
   getAllTags: () => invoke<[string, number][]>('get_all_tags'),

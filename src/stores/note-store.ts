@@ -66,7 +66,16 @@ export const useNoteStore = create<NoteStoreState>((set, get) => ({
   },
 
   selectNote: (note) => {
-    set({ currentNote: note });
+    // Keep the list entry in sync so pin/archive/reaction changes show up
+    // without a full reload.
+    set((state) => ({
+      currentNote: note,
+      notes: note
+        ? state.notes.map((existing) =>
+            existing.meta.id === note.meta.id ? note : existing
+          )
+        : state.notes,
+    }));
   },
 
   getNoteById: async (id: string) => {
