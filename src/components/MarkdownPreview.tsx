@@ -6,12 +6,14 @@ import remarkBreaks from "remark-breaks";
 import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
 import mermaid from "mermaid";
 import "katex/dist/katex.min.css";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/tauri-api";
+import { markdownSanitizeSchema } from "@/lib/sanitize-schema";
 
 interface MarkdownPreviewProps {
   content: string;
@@ -29,7 +31,8 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
     mermaid.initialize({
       startOnLoad: false,
       theme: "default",
-      securityLevel: "loose",
+      // Notes may come from untrusted files: never allow scripts/links in diagrams.
+      securityLevel: "strict",
     });
   }, []);
 
@@ -45,6 +48,8 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
           .use(remarkMath)
           .use(remarkRehype, { allowDangerousHtml: true })
           .use(rehypeRaw)
+          // Sanitize user HTML before KaTeX turns TeX source into trusted markup.
+          .use(rehypeSanitize, markdownSanitizeSchema)
           .use(rehypeKatex)
           .use(rehypeStringify);
 
@@ -94,7 +99,12 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
     const images = containerRef.current.querySelectorAll<HTMLImageElement>("img[src]");
     images.forEach(async (img) => {
       const src = img.getAttribute("src");
-      if (src && (src.startsWith("attachments/") || src.startsWith("attachments\\") || !src.includes("://"))) {
+      // Only vault-relative paths (e.g. `attachments/<id>/a.png`) need resolving.
+      // Anything with a scheme (`data:`, `blob:`, `https:`) or protocol-relative
+      // (`//host/x.png`) is already renderable by the webview.
+      const isVaultRelative =
+        !!src && !src.startsWith("//") && !/^[a-z][a-z0-9+.-]*:/i.test(src);
+      if (src && isVaultRelative) {
         if (attachmentImageCache.has(src)) {
           img.src = attachmentImageCache.get(src)!;
         } else {

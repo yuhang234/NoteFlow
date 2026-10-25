@@ -3,7 +3,7 @@ use crate::models::{AttachmentInfo, AttachmentStats};
 use crate::storage::list_notes;
 use chrono::{DateTime, Utc};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 fn get_mime_type(ext: &str) -> String {
@@ -24,6 +24,83 @@ fn get_mime_type(ext: &str) -> String {
     }
 }
 
+/// Reject path components that could escape the vault (e.g. `..`, `a/b`).
+fn sanitize_component(value: &str, label: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains('\0')
+    {
+        return Err(AppError::Validation(format!("Invalid {}: {}", label, value)));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Keep only the file name part so `../../x.png` can never traverse upwards.
+fn sanitize_filename(filename: &str) -> Result<String> {
+    let name = Path::new(filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.trim())
+        .filter(|n| !n.is_empty() && *n != "." && *n != "..")
+        .ok_or_else(|| {
+            AppError::Validation(format!("Invalid attachment file name: {}", filename))
+        })?;
+    Ok(name.to_string())
+}
+
+fn note_attachments_dir(base: &Path, note_id: &str) -> Result<PathBuf> {
+    let root = base.join("attachments");
+    if note_id.trim().is_empty() {
+        Ok(root)
+    } else {
+        Ok(root.join(sanitize_component(note_id, "note id")?))
+    }
+}
+
+/// Derive the owning note id from `attachments/<note-id>/<file>` paths.
+fn owner_note_id(base: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(base).ok()?;
+    let mut components = rel.components();
+    if components.next()?.as_os_str().to_string_lossy() != "attachments" {
+        return None;
+    }
+    let owner = components.next()?;
+    // Require at least one more component: `attachments/<note-id>/<file>`.
+    components.next()?;
+    Some(owner.as_os_str().to_string_lossy().to_string())
+}
+
+/// Resolve a vault-relative attachment path and make sure it stays inside the vault.
+fn resolve_attachment_path(base: &Path, rel_path: &str) -> Result<PathBuf> {
+    let trimmed = rel_path.trim().trim_start_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Empty attachment path".to_string()));
+    }
+
+    let candidate = base.join(trimmed);
+    if !candidate.exists() {
+        return Err(AppError::NotFound(format!(
+            "Attachment not found at: {}",
+            candidate.display()
+        )));
+    }
+
+    let base_canonical = base.canonicalize()?;
+    let candidate_canonical = candidate.canonicalize()?;
+    if !candidate_canonical.starts_with(&base_canonical) {
+        return Err(AppError::Validation(format!(
+            "Attachment path escapes the vault: {}",
+            rel_path
+        )));
+    }
+
+    Ok(candidate_canonical)
+}
+
 pub fn add_attachment(base: &Path, note_id: &str, source: &Path) -> Result<String> {
     if !source.exists() {
         return Err(AppError::NotFound(format!("Source attachment file not found: {}", source.display())));
@@ -34,11 +111,7 @@ pub fn add_attachment(base: &Path, note_id: &str, source: &Path) -> Result<Strin
         .and_then(|n| n.to_str())
         .ok_or_else(|| AppError::Validation("Invalid file name".to_string()))?;
 
-    let note_att_dir = if !note_id.trim().is_empty() {
-        base.join("attachments").join(note_id.trim())
-    } else {
-        base.join("attachments")
-    };
+    let note_att_dir = note_attachments_dir(base, note_id)?;
     fs::create_dir_all(&note_att_dir)?;
 
     let target = note_att_dir.join(file_name);
@@ -56,11 +129,7 @@ pub fn add_attachment(base: &Path, note_id: &str, source: &Path) -> Result<Strin
 
 pub fn list_attachments(base: &Path, note_id: &str) -> Result<Vec<AttachmentInfo>> {
     let mut list = Vec::new();
-    let att_dir = if !note_id.trim().is_empty() {
-        base.join("attachments").join(note_id.trim())
-    } else {
-        base.join("attachments")
-    };
+    let att_dir = note_attachments_dir(base, note_id)?;
 
     if !att_dir.exists() {
         return Ok(list);
@@ -81,13 +150,18 @@ pub fn list_attachments(base: &Path, note_id: &str) -> Result<Vec<AttachmentInfo
                 .unwrap_or_else(|_| Utc::now());
 
             let rel_path = path.strip_prefix(base).unwrap_or(path).to_string_lossy().to_string();
+            let owner = if note_id.trim().is_empty() {
+                owner_note_id(base, path)
+            } else {
+                Some(note_id.trim().to_string())
+            };
 
             list.push(AttachmentInfo {
                 filename,
                 path: rel_path.replace('\\', "/"),
                 size,
                 mime_type,
-                note_id: if note_id.is_empty() { None } else { Some(note_id.to_string()) },
+                note_id: owner,
                 created,
             });
         }
@@ -97,23 +171,12 @@ pub fn list_attachments(base: &Path, note_id: &str) -> Result<Vec<AttachmentInfo
 }
 
 pub fn delete_attachment(base: &Path, note_id: &str, filename: &str) -> Result<()> {
-    let candidate = if !note_id.trim().is_empty() {
-        base.join("attachments").join(note_id.trim()).join(filename)
-    } else {
-        base.join("attachments").join(filename)
-    };
+    let file = sanitize_filename(filename)?;
+    let candidate = note_attachments_dir(base, note_id)?.join(&file);
 
     if candidate.exists() {
         fs::remove_file(candidate)?;
         return Ok(());
-    }
-
-    // Try finding anywhere under attachments/
-    for entry in WalkDir::new(base.join("attachments")).into_iter().filter_map(|e| e.ok()) {
-        if entry.path().is_file() && entry.file_name().to_string_lossy() == filename {
-            fs::remove_file(entry.path())?;
-            return Ok(());
-        }
     }
 
     Err(AppError::NotFound(format!("Attachment {} not found", filename)))
@@ -152,7 +215,7 @@ pub fn get_unused_attachments(base: &Path) -> Result<Vec<AttachmentInfo>> {
                     path: rel_path,
                     size: metadata.len(),
                     mime_type: get_mime_type(ext),
-                    note_id: None,
+                    note_id: owner_note_id(base, path),
                     created,
                 });
             }
@@ -218,18 +281,15 @@ pub fn save_attachment_bytes(
     filename: &str,
     data: &[u8],
 ) -> Result<AttachmentInfo> {
-    let note_att_dir = if !note_id.trim().is_empty() {
-        base.join("attachments").join(note_id.trim())
-    } else {
-        base.join("attachments")
-    };
+    let note_att_dir = note_attachments_dir(base, note_id)?;
     fs::create_dir_all(&note_att_dir)?;
 
-    let path_obj = Path::new(filename);
+    let safe_name = sanitize_filename(filename)?;
+    let path_obj = Path::new(&safe_name);
     let stem = path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    let mut target_filename = filename.to_string();
+    let mut target_filename = safe_name.clone();
     let mut target_path = note_att_dir.join(&target_filename);
     let mut counter = 1;
 
@@ -259,18 +319,13 @@ pub fn save_attachment_bytes(
         path: rel_path,
         size,
         mime_type,
-        note_id: if note_id.trim().is_empty() { None } else { Some(note_id.to_string()) },
+        note_id: if note_id.trim().is_empty() { None } else { Some(sanitize_component(note_id, "note id")?) },
         created,
     })
 }
 
 pub fn read_attachment_base64(base: &Path, rel_path: &str) -> Result<String> {
-    let normalized = rel_path.trim_start_matches('/').trim_start_matches('\\');
-    let full_path = base.join(normalized);
-
-    if !full_path.exists() {
-        return Err(AppError::NotFound(format!("Attachment not found at: {}", full_path.display())));
-    }
+    let full_path = resolve_attachment_path(base, rel_path)?;
 
     let bytes = fs::read(&full_path)?;
     let ext = full_path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -280,12 +335,7 @@ pub fn read_attachment_base64(base: &Path, rel_path: &str) -> Result<String> {
 }
 
 pub fn open_attachment(base: &Path, rel_path: &str) -> Result<()> {
-    let normalized = rel_path.trim_start_matches('/').trim_start_matches('\\');
-    let full_path = base.join(normalized);
-
-    if !full_path.exists() {
-        return Err(AppError::NotFound(format!("Attachment not found at: {}", full_path.display())));
-    }
+    let full_path = resolve_attachment_path(base, rel_path)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -310,10 +360,7 @@ pub fn open_attachment(base: &Path, rel_path: &str) -> Result<()> {
 }
 
 pub fn open_attachment_folder(base: &Path, note_id: Option<&str>) -> Result<()> {
-    let target_dir = match note_id {
-        Some(id) if !id.trim().is_empty() => base.join("attachments").join(id.trim()),
-        _ => base.join("attachments"),
-    };
+    let target_dir = note_attachments_dir(base, note_id.unwrap_or(""))?;
     fs::create_dir_all(&target_dir)?;
 
     #[cfg(target_os = "windows")]

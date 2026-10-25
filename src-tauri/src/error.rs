@@ -21,9 +21,6 @@ pub enum AppError {
     #[error("Zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
 
-    #[error("Image error: {0}")]
-    Image(#[from] image::ImageError),
-
     #[error("Notify error: {0}")]
     Notify(#[from] notify::Error),
 

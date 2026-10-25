@@ -330,4 +330,63 @@ Another line with #productivity tag.
             .expect("read_attachment_base64");
         assert!(base64_str.starts_with("data:text/plain;base64,"));
     }
+
+    #[test]
+    fn test_attachment_paths_cannot_escape_vault() {
+        use noteflow_app_lib::attachments::{
+            delete_attachment, list_attachments, read_attachment_base64, save_attachment_bytes,
+        };
+
+        let dir = tempdir().expect("tempdir");
+        let base = dir.path().join("vault");
+        fs::create_dir_all(&base).expect("create vault");
+        ensure_vault_structure(&base).expect("ensure_vault_structure");
+
+        // A secret that lives outside of the vault must never be readable through IPC.
+        let outside = dir.path().join("secret.txt");
+        fs::write(&outside, b"top secret").expect("write secret");
+
+        assert!(read_attachment_base64(&base, "../secret.txt").is_err());
+        assert!(read_attachment_base64(&base, "attachments/../../secret.txt").is_err());
+        assert!(read_attachment_base64(&base, &outside.to_string_lossy()).is_err());
+
+        // Note ids and file names that contain path separators are rejected or reduced
+        // to their base name.
+        assert!(list_attachments(&base, "../..").is_err());
+        assert!(save_attachment_bytes(&base, "../escape", "x.txt", b"x").is_err());
+
+        let info = save_attachment_bytes(&base, "note-1", "../../evil.txt", b"data")
+            .expect("save_attachment_bytes");
+        assert_eq!(info.filename, "evil.txt");
+        assert!(base.join("attachments").join("note-1").join("evil.txt").exists());
+
+        // Deleting must not fall back to a vault-wide file name search.
+        assert!(delete_attachment(&base, "note-2", "evil.txt").is_err());
+        assert!(base.join(&info.path).exists());
+    }
+
+    #[test]
+    fn test_attachment_gallery_derives_owner_note() {
+        use noteflow_app_lib::attachments::{list_attachments, save_attachment_bytes};
+
+        let dir = tempdir().expect("tempdir");
+        let base = dir.path();
+        ensure_vault_structure(base).expect("ensure_vault_structure");
+
+        save_attachment_bytes(base, "note-a", "a.txt", b"a").expect("save a");
+        save_attachment_bytes(base, "note-b", "b.txt", b"b").expect("save b");
+        save_attachment_bytes(base, "", "root.txt", b"r").expect("save root");
+
+        let all = list_attachments(base, "").expect("list_attachments");
+        assert_eq!(all.len(), 3);
+
+        let owner = |name: &str| {
+            all.iter()
+                .find(|item| item.filename == name)
+                .and_then(|item| item.note_id.clone())
+        };
+        assert_eq!(owner("a.txt").as_deref(), Some("note-a"));
+        assert_eq!(owner("b.txt").as_deref(), Some("note-b"));
+        assert_eq!(owner("root.txt"), None);
+    }
 }
