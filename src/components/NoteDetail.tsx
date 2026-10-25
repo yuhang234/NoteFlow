@@ -28,6 +28,9 @@ interface NoteDetailProps {
   note: NoteFile;
 }
 
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export function NoteDetail({ note }: NoteDetailProps) {
   const { updateNote, deleteNote, pinNote, archiveNote } = useNoteStore();
   const { editMode, setEditMode } = useUIStore();
@@ -203,12 +206,24 @@ export function NoteDetail({ note }: NoteDetailProps) {
   }, [content]);
 
   const handleTagsChange = (newTags: string[]) => {
-    const existingTags = tags;
-    const added = newTags.filter((t) => !existingTags.includes(t));
-    if (added.length > 0) {
-      const appendStr = "\n\n" + added.map((t) => `#${t}`).join(" ");
-      handleContentChange(content + appendStr);
+    const removed = tags.filter((t) => !newTags.includes(t));
+    const added = newTags.filter((t) => !tags.includes(t));
+    if (removed.length === 0 && added.length === 0) return;
+
+    let next = content;
+    for (const tag of removed) {
+      // Remove the `#tag` token (plus one separating space) wherever it appears.
+      const pattern = new RegExp(
+        `[ \\t]*#${escapeRegExp(tag)}(?![\\w\\u4e00-\\u9fa5])`,
+        "g"
+      );
+      next = next.replace(pattern, "");
     }
+    if (added.length > 0) {
+      const suffix = added.map((t) => `#${t}`).join(" ");
+      next = `${next.replace(/\s*$/, "")}\n\n${suffix}\n`;
+    }
+    handleContentChange(next);
   };
 
   return (

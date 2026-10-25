@@ -182,13 +182,20 @@ pub fn find_trash_path_by_id(base: &Path, id: &str) -> Option<PathBuf> {
     None
 }
 
+/// Serialize `content` + `meta` into an already resolved note path.
+pub fn write_note_at(path: &Path, content: &str, meta: &NoteMeta) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let serialized = serialize_note(meta, content);
+    atomic_write(path, serialized.as_bytes())?;
+    Ok(())
+}
+
 pub fn update_note(base: &Path, id: &str, content: &str, meta: &NoteMeta) -> Result<()> {
     let path = find_note_path_by_id(base, id)
         .unwrap_or_else(|| base.join("notes").join(format!("{}.md", id)));
-
-    let serialized = serialize_note(meta, content);
-    atomic_write(&path, serialized.as_bytes())?;
-    Ok(())
+    write_note_at(&path, content, meta)
 }
 
 pub fn delete_note(base: &Path, id: &str) -> Result<()> {

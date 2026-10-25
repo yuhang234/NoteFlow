@@ -389,4 +389,54 @@ Another line with #productivity tag.
         assert_eq!(owner("b.txt").as_deref(), Some("note-b"));
         assert_eq!(owner("root.txt"), None);
     }
+    fn note_fixture(title: &str, pinned: bool, created: &str, updated: &str) -> NoteFile {
+        let mut meta = NoteMeta::default();
+        meta.pinned = pinned;
+        meta.created_at = created.parse().expect("created_at");
+        meta.updated_at = updated.parse().expect("updated_at");
+        NoteFile {
+            meta,
+            content: format!("# {}\n\nbody", title),
+            file_path: std::path::PathBuf::from(format!("notes/{}.md", title)),
+        }
+    }
+
+    fn titles_of(notes: &[NoteFile]) -> Vec<String> {
+        notes
+            .iter()
+            .map(|n| extract_title(&n.content).unwrap_or_default())
+            .collect()
+    }
+
+    #[test]
+    fn test_note_sorting_keeps_pinned_first_and_honours_order() {
+        use noteflow_app_lib::commands::sort_notes;
+
+        let mut notes = vec![
+            note_fixture("Beta", false, "2026-01-02T00:00:00Z", "2026-01-03T00:00:00Z"),
+            note_fixture("Alpha", true, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            note_fixture("Gamma", false, "2026-01-03T00:00:00Z", "2026-01-04T00:00:00Z"),
+        ];
+
+        sort_notes(&mut notes, "updated_at", true);
+        assert_eq!(
+            titles_of(&notes),
+            vec!["Alpha", "Gamma", "Beta"],
+            "pinned first, then newest update"
+        );
+
+        sort_notes(&mut notes, "title", false);
+        assert_eq!(
+            titles_of(&notes),
+            vec!["Alpha", "Beta", "Gamma"],
+            "pinned first, then title ascending"
+        );
+
+        sort_notes(&mut notes, "created_at", false);
+        assert_eq!(
+            titles_of(&notes),
+            vec!["Alpha", "Beta", "Gamma"],
+            "pinned first, then oldest first"
+        );
+    }
 }

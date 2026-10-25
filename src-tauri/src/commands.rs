@@ -6,8 +6,8 @@ use crate::error::AppError;
 use crate::import_export;
 use crate::models::{
     AppConfig, AttachmentInfo, AttachmentStats, BackupInfo, DraftInfo, ImportReport,
-    NoteFile, NoteFilter, NoteMeta, NoteStats, Reaction, RestoreReport, SavedView,
-    SearchResult, TagSetting, Workspace,
+    NoteFile, NoteFilter, NoteMeta, NoteMetaPatch, NoteStats, Reaction, RestoreReport,
+    SavedView, SearchResult, TagSetting, Workspace,
 };
 use crate::query::QueryParser;
 use crate::storage::{
@@ -30,18 +30,45 @@ fn get_base_dir(state: &State<'_, AppState>) -> PathBuf {
     state.data_dir.lock().unwrap().clone()
 }
 
+/// Resolve a note path through the index first and only fall back to a vault
+/// scan when the index is missing the note (e.g. freshly copied vault).
+fn resolve_note_path(state: &AppState, base: &Path, id: &str) -> Option<PathBuf> {
+    if let Ok(db) = state.db.lock() {
+        if let Some(path) = db.note_path(id) {
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    find_note_path_by_id(base, id)
+}
+
 // -------------------------------------------------------------
 // Note CRUD
 // -------------------------------------------------------------
+
+#[tauri::command]
+fn optional_id(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
 
 #[tauri::command]
 pub async fn create_note(
     state: State<'_, AppState>,
     content: String,
     meta: Option<NoteMeta>,
+    workspace_id: Option<String>,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
     let mut note_meta = meta.unwrap_or_default();
+    if note_meta.workspace_id.is_none() {
+        note_meta.workspace_id = workspace_id.and_then(optional_id);
+    }
     let now = Utc::now();
     note_meta.created_at = now;
     note_meta.updated_at = now;
@@ -69,7 +96,7 @@ pub async fn get_note(
     id: String,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .or_else(|| find_trash_path_by_id(&base, &id))
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
@@ -81,39 +108,48 @@ pub async fn update_note(
     state: State<'_, AppState>,
     id: String,
     content: String,
-    meta: Option<NoteMeta>,
+    meta: Option<NoteMetaPatch>,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let existing = read_note(&path)?;
     let mut updated_meta = existing.meta;
-    if let Some(m) = meta {
-        if !m.note_type.is_empty() {
-            updated_meta.note_type = m.note_type;
+    if let Some(patch) = meta {
+        if let Some(note_type) = patch.note_type {
+            if !note_type.trim().is_empty() {
+                updated_meta.note_type = note_type;
+            }
         }
-        updated_meta.pinned = m.pinned;
-        updated_meta.archived = m.archived;
-        if m.workspace_id.is_some() {
-            updated_meta.workspace_id = m.workspace_id;
+        if let Some(pinned) = patch.pinned {
+            updated_meta.pinned = pinned;
         }
-        if m.location.is_some() {
-            updated_meta.location = m.location;
+        if let Some(archived) = patch.archived {
+            updated_meta.archived = archived;
         }
-        if !m.relations.is_empty() {
-            updated_meta.relations = m.relations;
+        if let Some(workspace_id) = patch.workspace_id {
+            updated_meta.workspace_id = optional_id(workspace_id);
         }
-        if m.parent_id.is_some() {
-            updated_meta.parent_id = m.parent_id;
+        if let Some(location) = patch.location {
+            updated_meta.location = Some(location);
         }
-        if !m.reactions.is_empty() {
-            updated_meta.reactions = m.reactions;
+        if let Some(relations) = patch.relations {
+            updated_meta.relations = relations;
+        }
+        if let Some(parent_id) = patch.parent_id {
+            updated_meta.parent_id = optional_id(parent_id);
+        }
+        if let Some(reactions) = patch.reactions {
+            updated_meta.reactions = reactions;
+        }
+        if let Some(extra) = patch.extra {
+            updated_meta.extra = extra;
         }
     }
     updated_meta.updated_at = Utc::now();
 
-    storage::update_note(&base, &id, &content, &updated_meta)?;
+    storage::write_note_at(&path, &content, &updated_meta)?;
     let note_file = NoteFile {
         meta: updated_meta,
         content,
@@ -150,7 +186,7 @@ pub async fn restore_note(
     let base = get_base_dir(&state);
     storage::restore_note(&base, &id)?;
 
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Restored note {} not found", id)))?;
 
     let note_file = read_note(&path)?;
@@ -179,9 +215,65 @@ pub async fn permanent_delete_note(
 #[tauri::command]
 pub async fn list_notes(
     state: State<'_, AppState>,
+    workspace_id: Option<String>,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> std::result::Result<Vec<NoteFile>, AppError> {
     let base = get_base_dir(&state);
-    storage::list_notes(&base)
+    let mut notes = storage::list_notes(&base)?;
+
+    if let Some(workspace) = workspace_id.as_deref().and_then(|w| {
+        let trimmed = w.trim();
+        if trimmed.is_empty() || trimmed == "null" || trimmed == "all" {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }) {
+        notes.retain(|note| note.meta.workspace_id.as_deref() == Some(workspace));
+    }
+
+    let sort_by = sort_by.unwrap_or_else(|| "updated_at".to_string());
+    let descending = !matches!(sort_order.as_deref(), Some("asc") | Some("ascending"));
+    sort_notes(&mut notes, &sort_by, descending);
+
+    let offset = offset.unwrap_or(0) as usize;
+    if offset > 0 {
+        notes = notes.into_iter().skip(offset).collect();
+    }
+    if let Some(limit) = limit {
+        if limit > 0 {
+            notes.truncate(limit as usize);
+        }
+    }
+
+    Ok(notes)
+}
+
+/// Sort notes with pinned entries first, then by the requested key.
+pub(crate) fn sort_notes(notes: &mut [NoteFile], sort_by: &str, descending: bool) {
+    notes.sort_by(|a, b| {
+        let ordering = match sort_by {
+            "created_at" => a.meta.created_at.cmp(&b.meta.created_at),
+            "title" => note_sort_title(a)
+                .to_lowercase()
+                .cmp(&note_sort_title(b).to_lowercase()),
+            _ => a.meta.updated_at.cmp(&b.meta.updated_at),
+        };
+        let ordering = if descending { ordering.reverse() } else { ordering };
+        b.meta.pinned.cmp(&a.meta.pinned).then(ordering)
+    });
+}
+
+fn note_sort_title(note: &NoteFile) -> String {
+    storage::extract_title(&note.content).unwrap_or_else(|| {
+        note.file_path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default()
+    })
 }
 
 #[tauri::command]
@@ -199,14 +291,14 @@ pub async fn pin_note(
     pinned: bool,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
     note.meta.pinned = pinned;
     note.meta.updated_at = Utc::now();
 
-    storage::update_note(&base, &id, &note.content, &note.meta)?;
+    storage::write_note_at(&path, &note.content, &note.meta)?;
     if let Ok(db) = state.db.lock() {
         let _ = db.index_note(&note);
     }
@@ -221,14 +313,14 @@ pub async fn archive_note(
     archived: bool,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
     note.meta.archived = archived;
     note.meta.updated_at = Utc::now();
 
-    storage::update_note(&base, &id, &note.content, &note.meta)?;
+    storage::write_note_at(&path, &note.content, &note.meta)?;
     if let Ok(db) = state.db.lock() {
         let _ = db.index_note(&note);
     }
@@ -243,14 +335,14 @@ pub async fn move_note_to_workspace(
     workspace_id: Option<String>,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
     note.meta.workspace_id = workspace_id;
     note.meta.updated_at = Utc::now();
 
-    storage::update_note(&base, &id, &note.content, &note.meta)?;
+    storage::write_note_at(&path, &note.content, &note.meta)?;
     if let Ok(db) = state.db.lock() {
         let _ = db.index_note(&note);
     }
@@ -265,14 +357,14 @@ pub async fn add_relation(
     related_id: String,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
     if !note.meta.relations.contains(&related_id) {
         note.meta.relations.push(related_id);
         note.meta.updated_at = Utc::now();
-        storage::update_note(&base, &id, &note.content, &note.meta)?;
+        storage::write_note_at(&path, &note.content, &note.meta)?;
         if let Ok(db) = state.db.lock() {
             let _ = db.index_note(&note);
         }
@@ -288,14 +380,14 @@ pub async fn remove_relation(
     related_id: String,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
     if let Some(pos) = note.meta.relations.iter().position(|x| x == &related_id) {
         note.meta.relations.remove(pos);
         note.meta.updated_at = Utc::now();
-        storage::update_note(&base, &id, &note.content, &note.meta)?;
+        storage::write_note_at(&path, &note.content, &note.meta)?;
         if let Ok(db) = state.db.lock() {
             let _ = db.index_note(&note);
         }
@@ -311,7 +403,7 @@ pub async fn add_reaction(
     emoji: String,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
@@ -322,7 +414,7 @@ pub async fn add_reaction(
     }
     note.meta.updated_at = Utc::now();
 
-    storage::update_note(&base, &id, &note.content, &note.meta)?;
+    storage::write_note_at(&path, &note.content, &note.meta)?;
     if let Ok(db) = state.db.lock() {
         let _ = db.index_note(&note);
     }
@@ -337,7 +429,7 @@ pub async fn remove_reaction(
     emoji: String,
 ) -> std::result::Result<NoteFile, AppError> {
     let base = get_base_dir(&state);
-    let path = find_note_path_by_id(&base, &id)
+    let path = resolve_note_path(&state, &base, &id)
         .ok_or_else(|| AppError::NotFound(format!("Note {} not found", id)))?;
 
     let mut note = read_note(&path)?;
@@ -348,7 +440,7 @@ pub async fn remove_reaction(
             note.meta.reactions.remove(pos);
         }
         note.meta.updated_at = Utc::now();
-        storage::update_note(&base, &id, &note.content, &note.meta)?;
+        storage::write_note_at(&path, &note.content, &note.meta)?;
         if let Ok(db) = state.db.lock() {
             let _ = db.index_note(&note);
         }
@@ -385,7 +477,7 @@ pub async fn filter_notes(
 
     let mut list = Vec::new();
     for id in ids {
-        if let Some(p) = find_note_path_by_id(&base, &id) {
+        if let Some(p) = resolve_note_path(&state, &base, &id) {
             if let Ok(n) = read_note(&p) {
                 list.push(n);
             }
@@ -653,7 +745,7 @@ pub async fn get_notes_by_date(
 
     let mut list = Vec::new();
     for id in ids {
-        if let Some(p) = find_note_path_by_id(&base, &id) {
+        if let Some(p) = resolve_note_path(&state, &base, &id) {
             if let Ok(n) = read_note(&p) {
                 list.push(n);
             }

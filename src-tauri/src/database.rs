@@ -172,6 +172,23 @@ impl Database {
         Ok(())
     }
 
+    /// Resolve the on-disk path of a note straight from the index.
+    ///
+    /// Note file names are timestamp based (`YYYYMMDD_HHMMSS.md`), so the path
+    /// cannot be derived from the id: without this lookup every save would fall
+    /// back to a full vault scan.
+    pub fn note_path(&self, id: &str) -> Option<std::path::PathBuf> {
+        self.conn
+            .query_row(
+                "SELECT file_path FROM notes_meta WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|p| !p.is_empty())
+            .map(std::path::PathBuf::from)
+    }
+
     pub fn remove_note(&self, id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM notes_meta WHERE id = ?", params![id])?;
         self.conn.execute("DELETE FROM tags WHERE note_id = ?", params![id])?;

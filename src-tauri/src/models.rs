@@ -70,6 +70,32 @@ impl Default for NoteMeta {
     }
 }
 
+/// Partial update payload for `update_note`.
+///
+/// Every field is optional so callers can patch a single attribute without
+/// resetting the others (e.g. toggling a tag must not clear `pinned`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct NoteMetaPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactions: Option<Vec<Reaction>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<serde_json::Value>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteFile {
     pub meta: NoteMeta,
@@ -174,8 +200,12 @@ pub struct NoteStats {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DraftInfo {
     pub id: String,
+    #[serde(default)]
     pub title: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default = "Utc::now")]
     pub updated_at: DateTime<Utc>,
 }
 

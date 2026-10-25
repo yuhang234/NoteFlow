@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 // Type definitions matching Rust structs
 export interface NoteMeta {
   id: string;
-  type: string;
+  note_type: string;
   created_at: string;
   updated_at: string;
   pinned: boolean;
@@ -40,6 +40,14 @@ export interface Workspace {
   icon: string;
   color: string | null;
   order: number;
+}
+
+export interface DraftInfo {
+  id: string;
+  title: string;
+  content: string;
+  workspace_id: string | null;
+  updated_at: string;
 }
 
 export interface SearchResult {
@@ -128,7 +136,7 @@ export const api = {
       meta: meta && Object.keys(meta).length > 0 ? meta : null,
     }),
   deleteNote: (id: string) => invoke<void>('delete_note', { id }),
-  restoreNote: (id: string) => invoke<void>('restore_note', { id }),
+  restoreNote: (id: string) => invoke<NoteFile>('restore_note', { id }),
   permanentDeleteNote: (id: string) =>
     invoke<void>('permanent_delete_note', { id }),
   listNotes: (
@@ -147,9 +155,9 @@ export const api = {
     }),
   listTrash: () => invoke<NoteFile[]>('list_trash'),
   pinNote: (id: string, pinned: boolean) =>
-    invoke<void>('pin_note', { id, pinned }),
+    invoke<NoteFile>('pin_note', { id, pinned }),
   archiveNote: (id: string, archived: boolean) =>
-    invoke<void>('archive_note', { id, archived }),
+    invoke<NoteFile>('archive_note', { id, archived }),
   moveNoteToWorkspace: (id: string, workspace_id: string | null) =>
     invoke<void>('move_note_to_workspace', { id, workspaceId: workspace_id }),
   addRelation: (id: string, related_id: string) =>
@@ -170,7 +178,16 @@ export const api = {
     icon: string,
     color?: string
   ) =>
-    invoke<Workspace>('create_workspace', { name, description, icon, color }),
+    invoke<Workspace>('create_workspace', {
+      workspace: {
+        id: '',
+        name,
+        description,
+        icon,
+        color: color ?? null,
+        order: 0,
+      },
+    }),
   updateWorkspace: (workspace: Workspace) =>
     invoke<void>('update_workspace', { workspace }),
   deleteWorkspace: (id: string) => invoke<void>('delete_workspace', { id }),
@@ -178,7 +195,7 @@ export const api = {
   saveConfig: (config: AppConfig) => invoke<void>('save_config', { config }),
   getStats: () => invoke<NoteStats>('get_stats'),
   getNotesByDate: (date: string) =>
-    invoke<string[]>('get_notes_by_date', { date }),
+    invoke<NoteFile[]>('get_notes_by_date', { date }),
   getNotesCountByMonth: (year: number, month: number) =>
     invoke<[number, number][]>('get_notes_count_by_month', { year, month }),
   addAttachment: (noteId: string, sourcePath: string) =>
@@ -210,8 +227,16 @@ export const api = {
   listBackups: () => invoke<BackupInfo[]>('list_backups'),
   rebuildIndex: () => invoke<number>('rebuild_index'),
   saveDraft: (id: string, content: string, workspaceId?: string) =>
-    invoke<void>('save_draft', { id, content, workspaceId }),
-  getDraft: (id: string) => invoke<string | null>('get_draft', { id }),
-  listDrafts: () => invoke<any[]>('list_drafts'),
+    invoke<DraftInfo>('save_draft', {
+      draft: {
+        id: id ?? '',
+        title: '',
+        content,
+        workspace_id: workspaceId ?? null,
+        updated_at: new Date().toISOString(),
+      },
+    }),
+  getDraft: (id: string) => invoke<DraftInfo>('get_draft', { id }),
+  listDrafts: () => invoke<DraftInfo[]>('list_drafts'),
   deleteDraft: (id: string) => invoke<void>('delete_draft', { id }),
 };
