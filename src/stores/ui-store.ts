@@ -6,6 +6,8 @@ export type EditMode = 'source' | 'preview' | 'split';
 interface UIStoreState {
   sidebarOpen: boolean;
   noteListOpen: boolean;
+  /** Focus mode hides the sidebar and the note list, leaving only the note. */
+  focusMode: boolean;
   theme: Theme;
   editMode: EditMode;
   fontSize: number;
@@ -18,6 +20,8 @@ interface UIStoreState {
   setSidebarOpen: (open: boolean) => void;
   toggleNoteList: () => void;
   setNoteListOpen: (open: boolean) => void;
+  toggleFocusMode: () => void;
+  setFocusMode: (focusMode: boolean) => void;
   setTheme: (theme: Theme) => void;
   setEditMode: (mode: EditMode) => void;
   setFontSize: (size: number) => void;
@@ -37,6 +41,7 @@ applyFontSize(initialFontSize);
 export const useUIStore = create<UIStoreState>((set) => ({
   sidebarOpen: true,
   noteListOpen: true,
+  focusMode: false,
   theme: (localStorage.getItem('noteflow-theme') as Theme) || 'light',
   editMode: (localStorage.getItem('noteflow-edit-mode') as EditMode) || 'split',
   fontSize: initialFontSize,
@@ -48,6 +53,8 @@ export const useUIStore = create<UIStoreState>((set) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleNoteList: () => set((state) => ({ noteListOpen: !state.noteListOpen })),
   setNoteListOpen: (open) => set({ noteListOpen: open }),
+  toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
+  setFocusMode: (focusMode) => set({ focusMode }),
   setTheme: (theme) => {
     localStorage.setItem('noteflow-theme', theme);
     const root = document.documentElement;

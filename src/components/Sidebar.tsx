@@ -63,7 +63,7 @@ export function Sidebar({ onCreateNote }: SidebarProps) {
   };
 
   return (
-    <aside className="w-64 h-full flex flex-col bg-card border-r border-border select-none">
+    <aside className="w-56 h-full shrink-0 flex flex-col bg-card border-r border-border select-none">
       {/* App Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2">

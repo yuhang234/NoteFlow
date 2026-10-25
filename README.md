@@ -1406,3 +1406,24 @@ SQLite 索引可以选择备份，但恢复后即使删除索引，也必须能�
 - 运行环境缺少可用的 `tauri` 编译链（GNU 工具链下 build script 段错误，MSVC `link.exe` 被 MSYS 覆盖），后端通过 `src-tauri/rscheck` 桩 crate 做类型检查与单元测试；`cargo test` 中 7 个依赖 `chrono::Local::now()` 的用例在该桩环境下触发 0xc0000005，属链接组合问题而非业务缺陷。
 - `list_notes` 仍读取每篇笔记全文以生成摘要，笔记量很大时列表首屏偏慢，后续可拆成「元数据 + 摘要」两段式接口。
 - 草稿、SavedView（自定义视图）、标签个性化（颜色/模糊）、笔记评论与关联目前只有后端实现，尚未提供界面。
+
+## 二十九、专注模式与自动换行
+
+### 29.1 为什么需要
+
+默认布局为「侧边栏 + 笔记列表 + 编辑/预览」，在 1280 宽的窗口下正文区只剩约三分之一宽度；同时长段落在编辑器中不换行，会一直向右延伸。两者叠加，写作和阅读都很吃力。
+
+### 29.2 专注模式
+
+- 入口：笔记工具栏的「放大」按钮，或 <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>。
+- 效果：隐藏侧边栏与笔记列表，正文占满整个窗口；编辑/分栏/预览三种模式照常切换，因此可以「全屏写作」或「全屏阅读」。
+- 退出：<kbd>Esc</kbd>，或右下角常驻的「退出专注 (Esc)」按钮——该按钮挂在全局布局上，即使切到搜索、日历、设置页也不会被困住。
+- 侧边栏（<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>B</kbd>）与笔记列表可各自独立折叠，折叠后正文区自动补满。
+
+### 29.3 自动换行
+
+- 编辑器保留 `EditorView.lineWrapping`，并在 `index.css` 中显式声明 `.cm-content`/`.cm-line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word }`，避免 CodeMirror 基础主题的 `white-space: pre` 因样式注入顺序覆盖换行规则。
+- `.cm-scroller` 强制 `overflow-x: hidden`，从根上消除编辑器的横向滚动条。
+- 预览区对 `.noteflow-markdown` 追加 `overflow-wrap: anywhere`，超长 URL、哈希、连续英文串都会折行；代码块（`pre`）仍保留内部横向滚动，避免代码被强行折断。
+- 布局链路补齐 `min-w-0`/`min-h-0`：侧栏 224px + 列表 288px 为固定列，正文列作为 flex 子项可以真正收缩，不再被内容的最小宽度撑开。
+- 分栏比例的可调范围放宽到 15%–85%，拖动分隔条即可让编辑或预览占据绝大部分宽度，双击分隔条恢复 50/50。

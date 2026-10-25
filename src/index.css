@@ -189,6 +189,9 @@ button, label, [role="tab"] {
   line-height: 1.75;
   font-size: var(--noteflow-font-size, 15px);
   word-break: break-word;
+  /* Long URLs / hashes must wrap instead of widening the pane. */
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .noteflow-markdown h1 {
@@ -348,4 +351,28 @@ button, label, [role="tab"] {
   margin-right: 0.5rem !important;
   vertical-align: middle !important;
   accent-color: hsl(var(--primary)) !important;
+}
+
+/* ---------------------------------------------------------------
+   CodeMirror soft wrap
+   `EditorView.lineWrapping` already adds `cm-lineWrapping`, but the
+   base theme's `.cm-content { white-space: pre }` can win depending on
+   style-module order. Force the wrapping rules so a long paragraph never
+   runs off the pane and never produces a horizontal scrollbar.
+   --------------------------------------------------------------- */
+.cm-editor {
+  max-width: 100%;
+}
+
+.cm-scroller {
+  overflow-x: hidden !important;
+}
+
+.cm-content,
+.cm-line {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  flex-shrink: 1;
+  max-width: 100%;
 }

@@ -180,7 +180,7 @@ export function MarkdownPreview({ content, className = "" }: MarkdownPreviewProp
     <div
       ref={containerRef}
       className={cn(
-        "noteflow-markdown p-6 overflow-y-auto h-full",
+        "noteflow-markdown p-6 overflow-y-auto overflow-x-hidden h-full w-full min-w-0",
         className
       )}
       dangerouslySetInnerHTML={{ __html: html }}

@@ -10,7 +10,7 @@ import { NoteFile } from "@/lib/tauri-api";
 export function TimelinePage() {
   const { notes, currentNote, selectNote, fetchNotes, getNoteById, isLoading } =
     useNoteStore();
-  const { noteListOpen, toggleNoteList } = useUIStore();
+  const { noteListOpen, toggleNoteList, focusMode } = useUIStore();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -46,8 +46,8 @@ export function TimelinePage() {
   return (
     <div className="flex w-full h-full">
       {/* Middle list column */}
-      {noteListOpen && (
-        <div className="w-80 h-full shrink-0">
+      {noteListOpen && !focusMode && (
+        <div className="w-72 h-full shrink-0">
           <NoteList
             notes={activeNotes}
             selectedNoteId={currentNote?.meta.id}
@@ -57,8 +57,8 @@ export function TimelinePage() {
       )}
 
       {/* Right detail/editor column */}
-      <div className="relative flex-1 h-full overflow-hidden bg-background">
-        {!noteListOpen && (
+      <div className="relative flex-1 min-w-0 h-full overflow-hidden bg-background">
+        {!noteListOpen && !focusMode && (
           <button
             onClick={toggleNoteList}
             title="展开笔记列表"

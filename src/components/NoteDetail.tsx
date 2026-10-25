@@ -16,6 +16,8 @@ import {
   Loader2,
   FolderOpen,
   FileDown,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { NoteFile, api } from "@/lib/tauri-api";
@@ -40,7 +42,8 @@ export function NoteDetail({ note }: NoteDetailProps) {
   const { updateNote, deleteNote, pinNote, archiveNote } = useNoteStore();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { editMode, setEditMode, autoSaveInterval } = useUIStore();
+  const { editMode, setEditMode, autoSaveInterval, focusMode, toggleFocusMode } =
+    useUIStore();
 
   const [content, setContent] = React.useState(note.content);
   const [saveStatus, setSaveStatus] = React.useState<"saved" | "saving" | "unsaved">("saved");
@@ -51,7 +54,7 @@ export function NoteDetail({ note }: NoteDetailProps) {
   const splitRef = React.useRef<HTMLDivElement>(null);
   const [splitRatio, setSplitRatio] = React.useState(() => {
     const stored = Number(localStorage.getItem("noteflow-split-ratio"));
-    return Number.isFinite(stored) && stored >= 0.2 && stored <= 0.8 ? stored : 0.5;
+    return Number.isFinite(stored) && stored >= 0.15 && stored <= 0.85 ? stored : 0.5;
   });
   const [isResizing, setIsResizing] = React.useState(false);
   const contentRef = React.useRef(content);
@@ -121,7 +124,7 @@ export function NoteDetail({ note }: NoteDetailProps) {
       const rect = splitRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
       const ratio = (event.clientX - rect.left) / rect.width;
-      setSplitRatio(Math.min(0.8, Math.max(0.2, ratio)));
+      setSplitRatio(Math.min(0.85, Math.max(0.15, ratio)));
     };
     const handleUp = () => {
       setIsResizing(false);
@@ -288,7 +291,7 @@ export function NoteDetail({ note }: NoteDetailProps) {
 
   return (
     <div
-      className="flex flex-col h-full bg-background relative"
+      className="flex flex-col h-full min-w-0 min-h-0 bg-background relative"
       onPaste={handlePaste}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -388,6 +391,21 @@ export function NoteDetail({ note }: NoteDetailProps) {
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
           >
             <FolderOpen className="h-3.5 w-3.5" />
+          </Button>
+
+          {/* Focus mode */}
+          <Button
+            variant={focusMode ? "default" : "ghost"}
+            size="icon"
+            onClick={toggleFocusMode}
+            title="专注模式：隐藏侧栏与列表，全宽显示笔记 (Ctrl/⌘+Shift+F，Esc 退出)"
+            className="h-7 w-7"
+          >
+            {focusMode ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
           </Button>
 
           {/* Edit mode toggle */}
@@ -507,7 +525,7 @@ export function NoteDetail({ note }: NoteDetailProps) {
       </div>
 
       {/* Editor & Preview Workspace */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {editMode === "source" && (
           <MarkdownEditor value={content} onChange={handleContentChange} />
         )}
